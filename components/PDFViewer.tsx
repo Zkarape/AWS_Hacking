@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { Document, Page, pdfjs } from 'react-pdf';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Maximize2, Sparkles, Languages } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Maximize2, Sparkles, Moon, Sun } from 'lucide-react';
 import { useStudyStore, type HighlightColor } from '@/lib/store';
 import { TRANSLATION_LANGUAGES, translateText, type TranslationLanguage } from '@/lib/translate';
 import 'react-pdf/dist/esm/Page/TextLayer.css';
@@ -56,6 +56,7 @@ export default function PDFViewer() {
 
   const [scale, setScale] = useState(1.2);
   const [containerWidth, setContainerWidth] = useState(700);
+  const [isNightMode, setIsNightMode] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const pageWrapperRef = useRef<HTMLDivElement>(null);
   const [selectionTooltip, setSelectionTooltip] = useState<SelectionTooltip | null>(null);
@@ -338,6 +339,19 @@ export default function PDFViewer() {
               <span>{pageHighlights.length} on page</span>
             </button>
           )}
+          <button
+            onClick={() => setIsNightMode((v) => !v)}
+            className={`p-1.5 rounded-lg transition-colors ${
+              isNightMode
+                ? 'bg-indigo-500/20 text-indigo-300 hover:bg-indigo-500/30'
+                : 'hover:bg-white/10 text-slate-400 hover:text-slate-200'
+            }`}
+            title={isNightMode ? 'Switch to day mode' : 'Switch to night mode'}
+            aria-label={isNightMode ? 'Switch to day mode' : 'Switch to night mode'}
+            aria-pressed={isNightMode}
+          >
+            {isNightMode ? <Sun size={15} /> : <Moon size={15} />}
+          </button>
         </div>
       </div>
 
@@ -357,7 +371,15 @@ export default function PDFViewer() {
               loading={<div className="w-[700px] h-[900px] shimmer rounded-xl" />}
               className="flex flex-col items-center"
             >
-              <div ref={pageWrapperRef} className="relative">
+              <div
+                ref={pageWrapperRef}
+                className="relative transition-[filter] duration-300"
+                style={
+                  isNightMode
+                    ? { filter: 'invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.95)' }
+                    : undefined
+                }
+              >
                 <Page
                   pageNumber={currentPage}
                   width={renderedWidth}

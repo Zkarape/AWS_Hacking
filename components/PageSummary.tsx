@@ -2,9 +2,11 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { RefreshCw, FileText, Sparkles } from 'lucide-react';
+import { RefreshCw, FileText, Sparkles, Volume2, Pause, Square } from 'lucide-react';
 import { useStudyStore } from '@/lib/store';
 import clsx from 'clsx';
+
+type SpeechState = 'idle' | 'playing' | 'paused';
 
 export default function PageSummary() {
   const {
@@ -23,6 +25,56 @@ export default function PageSummary() {
   const abortRef = useRef<AbortController | null>(null);
   const lastPage = useRef<number>(-1);
   const [displayedSummary, setDisplayedSummary] = useState('');
+  const [speechState, setSpeechState] = useState<SpeechState>('idle');
+  const [speechSupported, setSpeechSupported] = useState(false);
+  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+
+  useEffect(() => {
+    setSpeechSupported(typeof window !== 'undefined' && 'speechSynthesis' in window);
+  }, []);
+
+  const stopSpeech = () => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    utteranceRef.current = null;
+    setSpeechState('idle');
+  };
+
+  const startSpeech = (text: string) => {
+    if (!text || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 1;
+    utterance.pitch = 1;
+    utterance.onend = () => {
+      utteranceRef.current = null;
+      setSpeechState('idle');
+    };
+    utterance.onerror = () => {
+      utteranceRef.current = null;
+      setSpeechState('idle');
+    };
+    utteranceRef.current = utterance;
+    window.speechSynthesis.speak(utterance);
+    setSpeechState('playing');
+  };
+
+  const toggleSpeech = () => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    const synth = window.speechSynthesis;
+    if (speechState === 'playing') {
+      synth.pause();
+      setSpeechState('paused');
+      return;
+    }
+    if (speechState === 'paused') {
+      synth.resume();
+      setSpeechState('playing');
+      return;
+    }
+    const text = displayedSummary || (isSimpleMode ? simpleSummary : summary);
+    startSpeech(text);
+  };
 
   const fetchSummary = async (page: number, simpleMode: boolean) => {
     const text = pageText[page];
@@ -75,6 +127,7 @@ export default function PageSummary() {
   useEffect(() => {
     if (currentPage !== lastPage.current && pageText[currentPage]) {
       lastPage.current = currentPage;
+      stopSpeech();
       // Reset cached simple summary for the new page so toggling triggers a fresh fetch.
       setSimpleSummary('');
       fetchSummary(currentPage, false);
@@ -85,6 +138,7 @@ export default function PageSummary() {
   // When the user toggles simple mode, swap to the cached version or fetch it on demand.
   useEffect(() => {
     if (!pageText[currentPage]) return;
+    stopSpeech();
     if (isSimpleMode) {
       if (simpleSummary) {
         setDisplayedSummary(simpleSummary);
@@ -100,6 +154,15 @@ export default function PageSummary() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSimpleMode]);
+
+  // Stop any in-flight speech on unmount.
+  useEffect(() => {
+    return () => {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
 
   return (
     <div className="flex flex-col h-full">
@@ -124,6 +187,50 @@ export default function PageSummary() {
             <Sparkles size={11} />
             ELI10
           </button>
+          {speechSupported && (
+            <>
+              <button
+                onClick={toggleSpeech}
+                disabled={
+                  summaryLoading ||
+                  !(displayedSummary || (isSimpleMode ? simpleSummary : summary))
+                }
+                title={
+                  speechState === 'playing'
+                    ? 'Pause narration'
+                    : speechState === 'paused'
+                      ? 'Resume narration'
+                      : 'Read summary aloud'
+                }
+                aria-pressed={speechState !== 'idle'}
+                aria-label={
+                  speechState === 'playing'
+                    ? 'Pause narration'
+                    : speechState === 'paused'
+                      ? 'Resume narration'
+                      : 'Read summary aloud'
+                }
+                className={clsx(
+                  'p-1.5 rounded-lg transition-colors disabled:opacity-40',
+                  speechState !== 'idle'
+                    ? 'bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25'
+                    : 'hover:bg-white/10 text-slate-500 hover:text-slate-300'
+                )}
+              >
+                {speechState === 'playing' ? <Pause size={13} /> : <Volume2 size={13} />}
+              </button>
+              {speechState !== 'idle' && (
+                <button
+                  onClick={stopSpeech}
+                  title="Stop narration"
+                  aria-label="Stop narration"
+                  className="p-1.5 rounded-lg hover:bg-white/10 text-slate-500 hover:text-slate-300 transition-colors"
+                >
+                  <Square size={13} />
+                </button>
+              )}
+            </>
+          )}
           <button
             onClick={() => fetchSummary(currentPage, isSimpleMode)}
             disabled={summaryLoading}
