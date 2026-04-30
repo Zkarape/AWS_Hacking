@@ -134,6 +134,11 @@ interface StudyStore {
   lastPageChangeTime: number;
   coachDismissedPages: number[];
   pendingChatPrompt: string;
+  dailyPageGoal: number;
+  pagesReadToday: number;
+  pagesReadDate: string;
+  readPageKeysToday: string[];
+  goalCelebratedDate: string | null;
 
   setPdfFile: (file: File) => void;
   loadPdfFromHistory: (id: string) => Promise<boolean>;
@@ -166,6 +171,19 @@ interface StudyStore {
   tickPageTimer: () => void;
   dismissCoachForPage: (page: number) => void;
   setPendingChatPrompt: (prompt: string) => void;
+  setDailyPageGoal: (n: number) => void;
+  recordPageRead: (pdfId: string, page: number) => void;
+  markGoalCelebrated: () => void;
+}
+
+const DEFAULT_DAILY_PAGE_GOAL = 20;
+
+function todayKey(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 function genId() {
@@ -218,6 +236,11 @@ export const useStudyStore = create<StudyStore>()(
       activePanel: 'summary',
       bookmarks: [],
       searchQuery: '',
+      dailyPageGoal: DEFAULT_DAILY_PAGE_GOAL,
+      pagesReadToday: 0,
+      pagesReadDate: todayKey(),
+      readPageKeysToday: [],
+      goalCelebratedDate: null,
 
       setPdfFile: (file) => {
         revokeUrl(get().pdfUrl);
@@ -343,11 +366,39 @@ export const useStudyStore = create<StudyStore>()(
             : [...s.bookmarks, page],
         })),
       setSearchQuery: (q) => set({ searchQuery: q }),
+      setDailyPageGoal: (n) =>
+        set(() => ({
+          dailyPageGoal: Math.max(1, Math.min(500, Math.floor(Number.isFinite(n) ? n : DEFAULT_DAILY_PAGE_GOAL))),
+        })),
+      recordPageRead: (pdfId, page) =>
+        set((s) => {
+          if (!pdfId || page <= 0) return s;
+          const today = todayKey();
+          const isNewDay = s.pagesReadDate !== today;
+          const baseCount = isNewDay ? 0 : s.pagesReadToday;
+          const baseKeys = isNewDay ? [] : s.readPageKeysToday;
+          const key = `${pdfId}:${page}`;
+          if (!isNewDay && baseKeys.includes(key)) return s;
+          return {
+            pagesReadDate: today,
+            readPageKeysToday: [...baseKeys, key],
+            pagesReadToday: baseCount + 1,
+            ...(isNewDay ? { goalCelebratedDate: null } : {}),
+          };
+        }),
+      markGoalCelebrated: () => set({ goalCelebratedDate: todayKey() }),
     }),
     {
       name: 'readmind-history',
       storage: createJSONStorage(() => localStorage),
-      partialize: (state) => ({ pdfHistory: state.pdfHistory }),
+      partialize: (state) => ({
+        pdfHistory: state.pdfHistory,
+        dailyPageGoal: state.dailyPageGoal,
+        pagesReadToday: state.pagesReadToday,
+        pagesReadDate: state.pagesReadDate,
+        readPageKeysToday: state.readPageKeysToday,
+        goalCelebratedDate: state.goalCelebratedDate,
+      }),
     }
   )
 );

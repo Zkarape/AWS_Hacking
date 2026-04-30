@@ -9,19 +9,36 @@ import { useStudyStore } from '@/lib/store';
 import LeftSidebar from '@/components/LeftSidebar';
 import RightSidebar from '@/components/RightSidebar';
 import ReadingCoach from '@/components/ReadingCoach';
+import DailyGoalRing from '@/components/DailyGoalRing';
+import GoalConfetti from '@/components/GoalConfetti';
 
 // PDF viewer must be client-only (no SSR) due to pdfjs worker
 const PDFViewer = dynamic(() => import('@/components/PDFViewer'), { ssr: false });
 
 export default function StudyPage() {
   const router = useRouter();
-  const { pdfFile, pdfUrl, currentPage, totalPages, bookmarks, toggleBookmark } = useStudyStore();
+  const {
+    pdfFile,
+    pdfUrl,
+    currentPage,
+    totalPages,
+    bookmarks,
+    toggleBookmark,
+    currentPdfId,
+    recordPageRead,
+  } = useStudyStore();
 
   useEffect(() => {
     if (!pdfUrl && !pdfFile) {
       router.replace('/');
     }
   }, [pdfUrl, pdfFile, router]);
+
+  useEffect(() => {
+    if (currentPdfId && currentPage > 0 && totalPages > 0) {
+      recordPageRead(currentPdfId, currentPage);
+    }
+  }, [currentPdfId, currentPage, totalPages, recordPageRead]);
 
   if (!pdfUrl) return null;
 
@@ -64,6 +81,7 @@ export default function StudyPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          <DailyGoalRing />
           <button
             onClick={() => toggleBookmark(currentPage)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 ${
@@ -112,6 +130,7 @@ export default function StudyPage() {
       </div>
 
       <ReadingCoach />
+      <GoalConfetti />
     </div>
   );
 }
