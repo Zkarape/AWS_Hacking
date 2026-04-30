@@ -20,6 +20,27 @@ export interface Concept {
   emoji: string;
 }
 
+export type HighlightColor = 'yellow' | 'green' | 'pink' | 'blue' | 'purple';
+
+export interface HighlightRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface Highlight {
+  id: string;
+  page: number;
+  text: string;
+  color: HighlightColor;
+  rects: HighlightRect[];
+  captureWidth: number;
+  createdAt: number;
+}
+
+export type ActivePanel = 'summary' | 'chat' | 'concepts' | 'flashcards' | 'studysheet';
+
 export interface PdfHistoryEntry {
   id: string;
   filename: string;
@@ -206,6 +227,17 @@ function revokeUrl(url: string | null) {
   }
 }
 
+// Append `page` to the navigation history, dedupe, and cap at PAGE_HISTORY_LIMIT.
+// Most recent page is last.
+function pushPageHistory(history: number[], page: number): number[] {
+  const filtered = history.filter((p) => p !== page);
+  filtered.push(page);
+  if (filtered.length > PAGE_HISTORY_LIMIT) {
+    return filtered.slice(filtered.length - PAGE_HISTORY_LIMIT);
+  }
+  return filtered;
+}
+
 const docResetSlice = {
   currentPage: 1,
   pageText: {} as Record<number, string>,
@@ -213,8 +245,13 @@ const docResetSlice = {
   selectedText: '',
   chatMessages: [] as Message[],
   summary: '',
+  simpleSummary: '',
+  isSimpleMode: false,
   concepts: [] as Concept[],
   flashcards: [] as Flashcard[],
+  highlights: [] as Highlight[],
+  studySheet: '',
+  studySheetLoading: false,
   bookmarks: [] as number[],
   notes: [] as Note[],
 };
@@ -233,11 +270,16 @@ export const useStudyStore = create<StudyStore>()(
       selectedText: '',
       chatMessages: [],
       summary: '',
+      simpleSummary: '',
+      isSimpleMode: false,
       summaryLoading: false,
       concepts: [],
       conceptsLoading: false,
       flashcards: [],
       flashcardsLoading: false,
+      highlights: [],
+      studySheet: '',
+      studySheetLoading: false,
       activePanel: 'summary',
       bookmarks: [],
       searchQuery: '',
@@ -265,6 +307,7 @@ export const useStudyStore = create<StudyStore>()(
           currentPdfId: id,
           pdfHistory: nextHistory,
           ...docResetSlice,
+          lastPageChangeTime: Date.now(),
         });
       },
 
@@ -289,6 +332,7 @@ export const useStudyStore = create<StudyStore>()(
               h.id === id ? { ...h, uploadedAt: now } : h
             ),
             ...docResetSlice,
+            lastPageChangeTime: Date.now(),
           });
           return true;
         } catch (err) {
@@ -309,7 +353,14 @@ export const useStudyStore = create<StudyStore>()(
         set({
           pdfHistory: state.pdfHistory.filter((h) => h.id !== id),
           ...(isCurrent
-            ? { pdfFile: null, pdfUrl: null, currentPdfId: null, totalPages: 0, ...docResetSlice }
+            ? {
+                pdfFile: null,
+                pdfUrl: null,
+                currentPdfId: null,
+                totalPages: 0,
+                ...docResetSlice,
+                lastPageChangeTime: Date.now(),
+              }
             : {}),
         });
       },
@@ -324,7 +375,16 @@ export const useStudyStore = create<StudyStore>()(
         });
       },
 
-      setCurrentPage: (page) => set({ currentPage: page }),
+      setCurrentPage: (page) =>
+        set((s) => {
+          if (page === s.currentPage) return s;
+          return {
+            currentPage: page,
+            pageHistory: pushPageHistory(s.pageHistory, page),
+            secondsOnPage: 0,
+            lastPageChangeTime: Date.now(),
+          };
+        }),
       setTotalPages: (n) => set({ totalPages: n }),
       setPageText: (page, text) =>
         set((s) => {
@@ -354,11 +414,26 @@ export const useStudyStore = create<StudyStore>()(
       addChatMessage: (msg) => set((s) => ({ chatMessages: [...s.chatMessages, msg] })),
       clearChat: () => set({ chatMessages: [], selectedText: '' }),
       setSummary: (s) => set({ summary: s }),
+      setSimpleSummary: (s) => set({ simpleSummary: s }),
+      setIsSimpleMode: (v) => set({ isSimpleMode: v }),
+      toggleSimpleMode: () => set((s) => ({ isSimpleMode: !s.isSimpleMode })),
       setSummaryLoading: (v) => set({ summaryLoading: v }),
       setConcepts: (c) => set({ concepts: c }),
       setConceptsLoading: (v) => set({ conceptsLoading: v }),
       setFlashcards: (f) => set({ flashcards: f }),
       setFlashcardsLoading: (v) => set({ flashcardsLoading: v }),
+      addHighlight: (h) =>
+        set((s) => ({
+          highlights: [
+            ...s.highlights,
+            { ...h, id: genId(), createdAt: Date.now() },
+          ],
+        })),
+      removeHighlight: (id) =>
+        set((s) => ({ highlights: s.highlights.filter((h) => h.id !== id) })),
+      clearHighlights: () => set({ highlights: [], studySheet: '' }),
+      setStudySheet: (s) => set({ studySheet: s }),
+      setStudySheetLoading: (v) => set({ studySheetLoading: v }),
       setActivePanel: (p) => set({ activePanel: p }),
       toggleBookmark: (page) =>
         set((s) => ({
