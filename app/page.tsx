@@ -1,10 +1,10 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookOpen, Sparkles, Zap, Brain, MessageSquare } from 'lucide-react';
+import { BookOpen, Sparkles, Zap, Brain, MessageSquare, FileText, Trash2, Library } from 'lucide-react';
 import { useStudyStore } from '@/lib/store';
 
 const features = [
@@ -23,11 +23,33 @@ const particles = Array.from({ length: 30 }, (_, i) => ({
   delay: Math.random() * 5,
 }));
 
+function formatRelativeTime(ts: number) {
+  const diff = Date.now() - ts;
+  const sec = Math.floor(diff / 1000);
+  if (sec < 60) return 'just now';
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 7) return `${day}d ago`;
+  return new Date(ts).toLocaleDateString();
+}
+
 export default function UploadPage() {
   const router = useRouter();
   const setPdfFile = useStudyStore((s) => s.setPdfFile);
+  const pdfHistory = useStudyStore((s) => s.pdfHistory);
+  const loadPdfFromHistory = useStudyStore((s) => s.loadPdfFromHistory);
+  const removeFromHistory = useStudyStore((s) => s.removeFromHistory);
   const [isDragging, setIsDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [openingId, setOpeningId] = useState<string | null>(null);
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
 
   const onDrop = useCallback(
     (acceptedFiles: File[]) => {
@@ -39,6 +61,26 @@ export default function UploadPage() {
     },
     [setPdfFile, router]
   );
+
+  const handleOpenLibraryItem = async (id: string) => {
+    if (openingId) return;
+    setOpeningId(id);
+    const ok = await loadPdfFromHistory(id);
+    if (ok) {
+      router.push('/study');
+    } else {
+      setOpeningId(null);
+    }
+  };
+
+  const handleRemoveLibraryItem = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    await removeFromHistory(id);
+  };
+
+  const sortedHistory = hydrated
+    ? pdfHistory.slice().sort((a, b) => b.uploadedAt - a.uploadedAt)
+    : [];
 
   const { getRootProps, getInputProps } = useDropzone({
     onDrop,
@@ -156,6 +198,70 @@ export default function UploadPage() {
           </motion.div>
           </div>
         </motion.div>
+
+        {/* Library / recent uploads */}
+        {sortedHistory.length > 0 && (
+          <motion.div
+            className="w-full"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.3 }}
+          >
+            <div className="flex items-center gap-2 mb-3 px-1">
+              <Library size={14} className="text-indigo-400" />
+              <h2 className="text-sm font-medium text-slate-300">Your library</h2>
+              <span className="text-xs text-slate-600">
+                {sortedHistory.length} {sortedHistory.length === 1 ? 'document' : 'documents'}
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-72 overflow-y-auto pr-1">
+              {sortedHistory.map((entry) => {
+                const isOpening = openingId === entry.id;
+                const isDisabled = !!openingId;
+                return (
+                  <div
+                    key={entry.id}
+                    onClick={() => !isDisabled && handleOpenLibraryItem(entry.id)}
+                    onKeyDown={(e) => {
+                      if (!isDisabled && (e.key === 'Enter' || e.key === ' ')) {
+                        e.preventDefault();
+                        handleOpenLibraryItem(entry.id);
+                      }
+                    }}
+                    role="button"
+                    tabIndex={isDisabled ? -1 : 0}
+                    aria-label={`Open ${entry.filename}`}
+                    aria-disabled={isDisabled}
+                    className={`group relative flex items-start gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:border-indigo-500/40 hover:bg-indigo-500/5 transition-all duration-200 text-left ${
+                      isDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                    }`}
+                  >
+                    <div className="w-9 h-9 shrink-0 rounded-lg bg-indigo-950/80 border border-indigo-800/40 flex items-center justify-center">
+                      <FileText size={16} className="text-indigo-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-slate-200 truncate" title={entry.filename}>
+                        {entry.filename}
+                      </p>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        {isOpening ? 'Opening…' : formatRelativeTime(entry.uploadedAt)}
+                        {entry.pageCount && !isOpening ? ` · ${entry.pageCount} pages` : ''}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => handleRemoveLibraryItem(e, entry.id)}
+                      aria-label={`Remove ${entry.filename} from library`}
+                      className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg hover:bg-white/10 text-slate-500 hover:text-red-400 transition-all"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </motion.div>
+        )}
 
         {/* Feature cards */}
         <motion.div
