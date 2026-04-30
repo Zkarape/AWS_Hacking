@@ -135,6 +135,11 @@ interface StudyStore {
   lastPageChangeTime: number;
   coachDismissedPages: number[];
   pendingChatPrompt: string;
+  dailyPageGoal: number;
+  pagesReadToday: number;
+  pagesReadDate: string;
+  readPageKeysToday: string[];
+  goalCelebratedDate: string | null;
 
   setPdfFile: (file: File) => void;
   loadPdfFromHistory: (id: string) => Promise<boolean>;
@@ -170,6 +175,19 @@ interface StudyStore {
   tickPageTimer: () => void;
   dismissCoachForPage: (page: number) => void;
   setPendingChatPrompt: (prompt: string) => void;
+  setDailyPageGoal: (n: number) => void;
+  recordPageRead: (pdfId: string, page: number) => void;
+  markGoalCelebrated: () => void;
+}
+
+const DEFAULT_DAILY_PAGE_GOAL = 20;
+
+function todayKey(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 function genId() {
@@ -366,7 +384,14 @@ export const useStudyStore = create<StudyStore>()(
     {
       name: 'readmind-history',
       storage: createJSONStorage(() => localStorage),
-      partialize: (state) => ({ pdfHistory: state.pdfHistory }),
+      partialize: (state) => ({
+        pdfHistory: state.pdfHistory,
+        dailyPageGoal: state.dailyPageGoal,
+        pagesReadToday: state.pagesReadToday,
+        pagesReadDate: state.pagesReadDate,
+        readPageKeysToday: state.readPageKeysToday,
+        goalCelebratedDate: state.goalCelebratedDate,
+      }),
     }
   )
 );
