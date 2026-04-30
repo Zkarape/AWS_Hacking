@@ -1,17 +1,62 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { List, Search, Bookmark, BookmarkCheck, ChevronRight } from 'lucide-react';
+import {
+  Bookmark,
+  BookmarkCheck,
+  ChevronRight,
+  FileText,
+  Library,
+  List,
+  Search,
+  Trash2,
+} from 'lucide-react';
 import { useStudyStore } from '@/lib/store';
 import clsx from 'clsx';
 
-type Tab = 'toc' | 'search' | 'bookmarks';
+type Tab = 'toc' | 'search' | 'bookmarks' | 'library';
+
+function formatRelativeTime(ts: number) {
+  const diff = Date.now() - ts;
+  const sec = Math.floor(diff / 1000);
+  if (sec < 60) return 'just now';
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 7) return `${day}d ago`;
+  return new Date(ts).toLocaleDateString();
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 export default function LeftSidebar() {
-  const { currentPage, totalPages, setCurrentPage, bookmarks, toggleBookmark, searchQuery, setSearchQuery } =
-    useStudyStore();
+  const {
+    currentPage,
+    totalPages,
+    setCurrentPage,
+    bookmarks,
+    toggleBookmark,
+    searchQuery,
+    setSearchQuery,
+    pdfHistory,
+    currentPdfId,
+    loadPdfFromHistory,
+    removeFromHistory,
+  } = useStudyStore();
   const [activeTab, setActiveTab] = useState<Tab>('toc');
+  const [libraryQuery, setLibraryQuery] = useState('');
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
 
   const isBookmarked = bookmarks.includes(currentPage);
   const progress = totalPages > 0 ? (currentPage / totalPages) * 100 : 0;
@@ -21,11 +66,28 @@ export default function LeftSidebar() {
     ? pages.filter((p) => String(p).includes(searchQuery))
     : pages;
 
+  const filteredHistory = (
+    libraryQuery
+      ? pdfHistory.filter((h) => h.filename.toLowerCase().includes(libraryQuery.toLowerCase()))
+      : pdfHistory
+  ).slice().sort((a, b) => b.uploadedAt - a.uploadedAt);
+
   const tabs: { id: Tab; icon: typeof List; label: string }[] = [
     { id: 'toc', icon: List, label: 'Contents' },
     { id: 'search', icon: Search, label: 'Search' },
     { id: 'bookmarks', icon: Bookmark, label: 'Bookmarks' },
+    { id: 'library', icon: Library, label: 'Library' },
   ];
+
+  const handleOpenFromLibrary = async (id: string) => {
+    if (id === currentPdfId) return;
+    await loadPdfFromHistory(id);
+  };
+
+  const handleRemoveFromLibrary = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    await removeFromHistory(id);
+  };
 
   return (
     <div className="flex flex-col h-full bg-[#0c0c18] border-r border-white/[0.06]">
@@ -36,7 +98,7 @@ export default function LeftSidebar() {
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
             className={clsx(
-              'flex-1 flex flex-col items-center gap-1 py-3 text-xs transition-all duration-200',
+              'flex-1 flex flex-col items-center gap-1 py-3 text-[10px] transition-all duration-200',
               activeTab === tab.id
                 ? 'text-indigo-400 border-b-2 border-indigo-500'
                 : 'text-slate-500 hover:text-slate-300'
@@ -171,6 +233,84 @@ export default function LeftSidebar() {
                       Page {page}
                     </button>
                   ))}
+                </div>
+              )}
+            </motion.div>
+          )}
+
+          {activeTab === 'library' && (
+            <motion.div key="library" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-3">
+              <div className="relative mb-3">
+                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                <input
+                  type="text"
+                  placeholder="Search library..."
+                  value={libraryQuery}
+                  onChange={(e) => setLibraryQuery(e.target.value)}
+                  className="w-full pl-8 pr-3 py-2 bg-white/[0.04] border border-white/[0.08] rounded-lg text-xs text-slate-300 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/40"
+                />
+              </div>
+              {!hydrated ? null : filteredHistory.length === 0 ? (
+                <div className="flex flex-col items-center gap-3 py-12 text-center">
+                  <Library size={28} className="text-slate-700" />
+                  <div>
+                    <p className="text-sm text-slate-500">
+                      {pdfHistory.length === 0 ? 'No PDFs yet' : 'No matches'}
+                    </p>
+                    <p className="text-xs text-slate-600 mt-1">
+                      {pdfHistory.length === 0
+                        ? 'Uploaded PDFs will show up here'
+                        : 'Try a different search'}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  {filteredHistory.map((entry) => {
+                    const isCurrent = entry.id === currentPdfId;
+                    return (
+                      <div
+                        key={entry.id}
+                        onClick={() => handleOpenFromLibrary(entry.id)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            handleOpenFromLibrary(entry.id);
+                          }
+                        }}
+                        className={clsx(
+                          'group cursor-pointer flex items-start gap-2 px-2.5 py-2 rounded-lg text-xs transition-colors',
+                          isCurrent
+                            ? 'bg-indigo-950/60 text-indigo-300 border border-indigo-800/40'
+                            : 'text-slate-400 hover:bg-white/[0.04] hover:text-slate-200 border border-transparent'
+                        )}
+                      >
+                        <FileText
+                          size={13}
+                          className={clsx('shrink-0 mt-0.5', isCurrent ? 'text-indigo-400' : 'text-slate-500')}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="truncate font-medium" title={entry.filename}>
+                            {entry.filename}
+                          </p>
+                          <p className="text-[10px] text-slate-600 mt-0.5">
+                            {formatRelativeTime(entry.uploadedAt)}
+                            {entry.pageCount ? ` · ${entry.pageCount}p` : ''}
+                            {` · ${formatBytes(entry.size)}`}
+                          </p>
+                        </div>
+                        <button
+                          onClick={(e) => handleRemoveFromLibrary(e, entry.id)}
+                          aria-label={`Remove ${entry.filename}`}
+                          className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-white/10 text-slate-500 hover:text-red-400 transition-all"
+                        >
+                          <Trash2 size={11} />
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </motion.div>
