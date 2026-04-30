@@ -2,26 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { RefreshCw, FileText, Sparkles, BookOpen, X } from 'lucide-react';
+import { RefreshCw, FileText, Sparkles, Volume2, Pause, Square } from 'lucide-react';
 import { useStudyStore } from '@/lib/store';
 import clsx from 'clsx';
 
-interface JargonTerm {
-  term: string;
-  definition: string;
-}
-
-function escapeRegex(str: string) {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function buildJargonRegex(terms: JargonTerm[]): RegExp | null {
-  if (!terms.length) return null;
-  // Sort longest first so multi-word phrases win over their substrings.
-  const sorted = [...terms].sort((a, b) => b.term.length - a.term.length);
-  const pattern = sorted.map((t) => escapeRegex(t.term)).join('|');
-  return new RegExp(`\\b(?:${pattern})\\b`, 'gi');
-}
+type SpeechState = 'idle' | 'playing' | 'paused';
 
 export default function PageSummary() {
   const {
@@ -40,6 +25,56 @@ export default function PageSummary() {
   const abortRef = useRef<AbortController | null>(null);
   const lastPage = useRef<number>(-1);
   const [displayedSummary, setDisplayedSummary] = useState('');
+  const [speechState, setSpeechState] = useState<SpeechState>('idle');
+  const [speechSupported, setSpeechSupported] = useState(false);
+  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+
+  useEffect(() => {
+    setSpeechSupported(typeof window !== 'undefined' && 'speechSynthesis' in window);
+  }, []);
+
+  const stopSpeech = () => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    utteranceRef.current = null;
+    setSpeechState('idle');
+  };
+
+  const startSpeech = (text: string) => {
+    if (!text || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 1;
+    utterance.pitch = 1;
+    utterance.onend = () => {
+      utteranceRef.current = null;
+      setSpeechState('idle');
+    };
+    utterance.onerror = () => {
+      utteranceRef.current = null;
+      setSpeechState('idle');
+    };
+    utteranceRef.current = utterance;
+    window.speechSynthesis.speak(utterance);
+    setSpeechState('playing');
+  };
+
+  const toggleSpeech = () => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    const synth = window.speechSynthesis;
+    if (speechState === 'playing') {
+      synth.pause();
+      setSpeechState('paused');
+      return;
+    }
+    if (speechState === 'paused') {
+      synth.resume();
+      setSpeechState('playing');
+      return;
+    }
+    const text = displayedSummary || (isSimpleMode ? simpleSummary : summary);
+    startSpeech(text);
+  };
 
   const [terms, setTerms] = useState<JargonTerm[]>([]);
   const jargonCacheRef = useRef<Map<string, JargonTerm[]>>(new Map());
@@ -102,6 +137,7 @@ export default function PageSummary() {
   useEffect(() => {
     if (currentPage !== lastPage.current && pageText[currentPage]) {
       lastPage.current = currentPage;
+      stopSpeech();
       // Reset cached simple summary for the new page so toggling triggers a fresh fetch.
       setSimpleSummary('');
       fetchSummary(currentPage, false);
@@ -112,6 +148,7 @@ export default function PageSummary() {
   // When the user toggles simple mode, swap to the cached version or fetch it on demand.
   useEffect(() => {
     if (!pageText[currentPage]) return;
+    stopSpeech();
     if (isSimpleMode) {
       if (simpleSummary) {
         setDisplayedSummary(simpleSummary);
@@ -128,164 +165,14 @@ export default function PageSummary() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSimpleMode]);
 
-  // Detect jargon once a summary has finished streaming. Cache by summary text so
-  // toggling between modes or pages doesn't re-fetch a definition we already have.
+  // Stop any in-flight speech on unmount.
   useEffect(() => {
-    setActiveTerm(null);
-    if (summaryLoading || !displayedSummary) {
-      setTerms([]);
-      return;
-    }
-    const cached = jargonCacheRef.current.get(displayedSummary);
-    if (cached) {
-      setTerms(cached);
-      return;
-    }
-    jargonAbortRef.current?.abort();
-    const ctrl = new AbortController();
-    jargonAbortRef.current = ctrl;
-    const snapshot = displayedSummary;
-    fetch('/api/jargon', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: snapshot }),
-      signal: ctrl.signal,
-    })
-      .then((r) => (r.ok ? r.json() : { terms: [] }))
-      .then((data) => {
-        if (ctrl.signal.aborted) return;
-        const list: JargonTerm[] = Array.isArray(data?.terms)
-          ? data.terms.filter(
-              (t: unknown): t is JargonTerm =>
-                !!t &&
-                typeof (t as JargonTerm).term === 'string' &&
-                typeof (t as JargonTerm).definition === 'string'
-            )
-          : [];
-        jargonCacheRef.current.set(snapshot, list);
-        setTerms(list);
-      })
-      .catch(() => {});
-    return () => ctrl.abort();
-  }, [summaryLoading, displayedSummary]);
-
-  // Dismiss the popover on outside click, Escape, or when the panel scrolls.
-  useEffect(() => {
-    if (!activeTerm) return;
-    const onDown = (e: MouseEvent | TouchEvent) => {
-      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
-        setActiveTerm(null);
-      }
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setActiveTerm(null);
-    };
-    const onScroll = () => setActiveTerm(null);
-    window.addEventListener('mousedown', onDown);
-    window.addEventListener('touchstart', onDown, { passive: true });
-    window.addEventListener('keydown', onKey);
-    window.addEventListener('scroll', onScroll, { passive: true, capture: true });
-    scrollRef.current?.addEventListener('scroll', onScroll, { passive: true });
     return () => {
-      window.removeEventListener('mousedown', onDown);
-      window.removeEventListener('touchstart', onDown);
-      window.removeEventListener('keydown', onKey);
-      window.removeEventListener('scroll', onScroll, true);
-      scrollRef.current?.removeEventListener('scroll', onScroll);
-    };
-  }, [activeTerm]);
-
-  const handleTermClick = (
-    term: JargonTerm,
-    e: React.MouseEvent<HTMLButtonElement>
-  ) => {
-    e.stopPropagation();
-    const rect = e.currentTarget.getBoundingClientRect();
-    setActiveTerm((prev) =>
-      prev?.term.term.toLowerCase() === term.term.toLowerCase()
-        ? null
-        : {
-            term,
-            rect: {
-              top: rect.top,
-              bottom: rect.bottom,
-              left: rect.left,
-              right: rect.right,
-            },
-          }
-    );
-  };
-
-  const summaryText = displayedSummary || (isSimpleMode ? simpleSummary : summary);
-
-  const summaryNodes = useMemo<React.ReactNode>(() => {
-    if (!summaryText) return null;
-    const regex = buildJargonRegex(terms);
-    if (!regex) return summaryText;
-
-    const lookup = new Map(terms.map((t) => [t.term.toLowerCase(), t]));
-    const nodes: React.ReactNode[] = [];
-    let lastIndex = 0;
-    let match: RegExpExecArray | null;
-    let key = 0;
-    while ((match = regex.exec(summaryText)) !== null) {
-      if (match.index > lastIndex) {
-        nodes.push(summaryText.slice(lastIndex, match.index));
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
       }
-      const matched = match[0];
-      const term = lookup.get(matched.toLowerCase());
-      if (term) {
-        nodes.push(
-          <button
-            key={`jt-${key++}-${match.index}`}
-            type="button"
-            onClick={(e) => handleTermClick(term, e)}
-            className="text-indigo-300 underline decoration-dotted decoration-indigo-400/60 underline-offset-[3px] hover:text-indigo-200 hover:decoration-indigo-300 hover:bg-indigo-500/10 rounded-sm px-0.5 -mx-0.5 transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-indigo-400/60 cursor-pointer"
-          >
-            {matched}
-          </button>
-        );
-      } else {
-        nodes.push(matched);
-      }
-      lastIndex = match.index + matched.length;
-      // Guard against zero-width matches (shouldn't happen with our pattern).
-      if (match.index === regex.lastIndex) regex.lastIndex++;
-    }
-    if (lastIndex < summaryText.length) {
-      nodes.push(summaryText.slice(lastIndex));
-    }
-    return nodes;
-  // handleTermClick is stable enough; recomputing on every render is cheap.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [summaryText, terms]);
-
-  // Compute popover position (clamped to viewport).
-  const popoverStyle = useMemo<React.CSSProperties | null>(() => {
-    if (!activeTerm) return null;
-    if (typeof window === 'undefined') return null;
-    const POPOVER_W = 280;
-    const margin = 8;
-    const viewportW = window.innerWidth;
-    const viewportH = window.innerHeight;
-    const anchorCenter = (activeTerm.rect.left + activeTerm.rect.right) / 2;
-    let left = anchorCenter - POPOVER_W / 2;
-    left = Math.max(margin, Math.min(left, viewportW - POPOVER_W - margin));
-    const spaceBelow = viewportH - activeTerm.rect.bottom;
-    const showAbove = spaceBelow < 140 && activeTerm.rect.top > 140;
-    const top = showAbove
-      ? Math.max(margin, activeTerm.rect.top - 12)
-      : Math.min(viewportH - margin, activeTerm.rect.bottom + 8);
-    return {
-      position: 'fixed',
-      top,
-      left,
-      width: POPOVER_W,
-      maxWidth: `calc(100vw - ${margin * 2}px)`,
-      transform: showAbove ? 'translateY(-100%)' : undefined,
-      zIndex: 60,
     };
-  }, [activeTerm]);
+  }, []);
 
   return (
     <div className="flex flex-col h-full">
@@ -310,6 +197,50 @@ export default function PageSummary() {
             <Sparkles size={11} />
             ELI10
           </button>
+          {speechSupported && (
+            <>
+              <button
+                onClick={toggleSpeech}
+                disabled={
+                  summaryLoading ||
+                  !(displayedSummary || (isSimpleMode ? simpleSummary : summary))
+                }
+                title={
+                  speechState === 'playing'
+                    ? 'Pause narration'
+                    : speechState === 'paused'
+                      ? 'Resume narration'
+                      : 'Read summary aloud'
+                }
+                aria-pressed={speechState !== 'idle'}
+                aria-label={
+                  speechState === 'playing'
+                    ? 'Pause narration'
+                    : speechState === 'paused'
+                      ? 'Resume narration'
+                      : 'Read summary aloud'
+                }
+                className={clsx(
+                  'p-1.5 rounded-lg transition-colors disabled:opacity-40',
+                  speechState !== 'idle'
+                    ? 'bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25'
+                    : 'hover:bg-white/10 text-slate-500 hover:text-slate-300'
+                )}
+              >
+                {speechState === 'playing' ? <Pause size={13} /> : <Volume2 size={13} />}
+              </button>
+              {speechState !== 'idle' && (
+                <button
+                  onClick={stopSpeech}
+                  title="Stop narration"
+                  aria-label="Stop narration"
+                  className="p-1.5 rounded-lg hover:bg-white/10 text-slate-500 hover:text-slate-300 transition-colors"
+                >
+                  <Square size={13} />
+                </button>
+              )}
+            </>
+          )}
           <button
             onClick={() => fetchSummary(currentPage, isSimpleMode)}
             disabled={summaryLoading}
