@@ -27,6 +27,8 @@ interface StudyStore {
   selectedText: string;
   chatMessages: Message[];
   summary: string;
+  simpleSummary: string;
+  isSimpleMode: boolean;
   summaryLoading: boolean;
   concepts: Concept[];
   conceptsLoading: boolean;
@@ -44,6 +46,9 @@ interface StudyStore {
   addChatMessage: (msg: Message) => void;
   clearChat: () => void;
   setSummary: (s: string) => void;
+  setSimpleSummary: (s: string) => void;
+  setIsSimpleMode: (v: boolean) => void;
+  toggleSimpleMode: () => void;
   setSummaryLoading: (v: boolean) => void;
   setConcepts: (c: Concept[]) => void;
   setConceptsLoading: (v: boolean) => void;
@@ -63,6 +68,8 @@ export const useStudyStore = create<StudyStore>((set, get) => ({
   selectedText: '',
   chatMessages: [],
   summary: '',
+  simpleSummary: '',
+  isSimpleMode: false,
   summaryLoading: false,
   concepts: [],
   conceptsLoading: false,
@@ -74,7 +81,7 @@ export const useStudyStore = create<StudyStore>((set, get) => ({
 
   setPdfFile: (file) => {
     const url = URL.createObjectURL(file);
-    set({ pdfFile: file, pdfUrl: url, currentPage: 1, chatMessages: [], summary: '', concepts: [], flashcards: [] });
+    set({ pdfFile: file, pdfUrl: url, currentPage: 1, chatMessages: [], summary: '', simpleSummary: '', concepts: [], flashcards: [] });
   },
   setCurrentPage: (page) => set({ currentPage: page }),
   setTotalPages: (n) => set({ totalPages: n }),
@@ -83,6 +90,9 @@ export const useStudyStore = create<StudyStore>((set, get) => ({
   addChatMessage: (msg) => set((s) => ({ chatMessages: [...s.chatMessages, msg] })),
   clearChat: () => set({ chatMessages: [], selectedText: '' }),
   setSummary: (s) => set({ summary: s }),
+  setSimpleSummary: (s) => set({ simpleSummary: s }),
+  setIsSimpleMode: (v) => set({ isSimpleMode: v }),
+  toggleSimpleMode: () => set((s) => ({ isSimpleMode: !s.isSimpleMode })),
   setSummaryLoading: (v) => set({ summaryLoading: v }),
   setConcepts: (c) => set({ concepts: c }),
   setConceptsLoading: (v) => set({ conceptsLoading: v }),
