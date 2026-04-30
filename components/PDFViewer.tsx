@@ -12,8 +12,18 @@ import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
 pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
 
 export default function PDFViewer() {
-  const { pdfUrl, currentPage, totalPages, setCurrentPage, setTotalPages, setPageText, setSelectedText, setActivePanel } =
-    useStudyStore();
+  const {
+    pdfUrl,
+    currentPage,
+    totalPages,
+    currentPdfId,
+    setCurrentPage,
+    setTotalPages,
+    setHistoryPageCount,
+    setPageText,
+    setSelectedText,
+    setActivePanel,
+  } = useStudyStore();
 
   const [scale, setScale] = useState(1.2);
   const [containerWidth, setContainerWidth] = useState(700);
@@ -29,11 +39,18 @@ export default function PDFViewer() {
     return () => obs.disconnect();
   }, []);
 
+  // Tick page timer every second while viewer is mounted; resets on page change via store.
+  useEffect(() => {
+    const id = window.setInterval(() => tickPageTimer(), 1000);
+    return () => window.clearInterval(id);
+  }, [tickPageTimer]);
+
   const onDocumentLoadSuccess = useCallback(
     ({ numPages }: { numPages: number }) => {
       setTotalPages(numPages);
+      if (currentPdfId) setHistoryPageCount(currentPdfId, numPages);
     },
-    [setTotalPages]
+    [setTotalPages, setHistoryPageCount, currentPdfId]
   );
 
   const onPageLoadSuccess = useCallback(

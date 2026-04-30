@@ -6,7 +6,16 @@ import { Send, MessageSquare, Trash2, Sparkles } from 'lucide-react';
 import { useStudyStore, type Message } from '@/lib/store';
 
 export default function ChatPanel() {
-  const { selectedText, chatMessages, addChatMessage, clearChat, currentPage, pageText } = useStudyStore();
+  const {
+    selectedText,
+    chatMessages,
+    addChatMessage,
+    clearChat,
+    currentPage,
+    pageText,
+    pendingChatPrompt,
+    setPendingChatPrompt,
+  } = useStudyStore();
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [streamingText, setStreamingText] = useState('');
@@ -62,6 +71,15 @@ export default function ChatPanel() {
       setStreamingText('');
     }
   };
+
+  // Auto-dispatch a queued prompt (e.g. from the Reading Coach) once.
+  useEffect(() => {
+    if (!pendingChatPrompt) return;
+    const prompt = pendingChatPrompt;
+    setPendingChatPrompt('');
+    sendMessage(prompt);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingChatPrompt]);
 
   return (
     <div className="flex flex-col h-full">
