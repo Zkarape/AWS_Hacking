@@ -47,6 +47,10 @@ interface StudyStore {
   activePanel: 'summary' | 'chat' | 'concepts' | 'flashcards';
   bookmarks: number[];
   searchQuery: string;
+  secondsOnPage: number;
+  lastPageChangeTime: number;
+  coachDismissedPages: number[];
+  pendingChatPrompt: string;
 
   setPdfFile: (file: File) => void;
   loadPdfFromHistory: (id: string) => Promise<boolean>;
@@ -67,6 +71,9 @@ interface StudyStore {
   setActivePanel: (p: StudyStore['activePanel']) => void;
   toggleBookmark: (page: number) => void;
   setSearchQuery: (q: string) => void;
+  tickPageTimer: () => void;
+  dismissCoachForPage: (page: number) => void;
+  setPendingChatPrompt: (prompt: string) => void;
 }
 
 function genId() {

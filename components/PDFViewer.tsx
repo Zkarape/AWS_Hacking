@@ -39,6 +39,12 @@ export default function PDFViewer() {
     return () => obs.disconnect();
   }, []);
 
+  // Tick page timer every second while viewer is mounted; resets on page change via store.
+  useEffect(() => {
+    const id = window.setInterval(() => tickPageTimer(), 1000);
+    return () => window.clearInterval(id);
+  }, [tickPageTimer]);
+
   const onDocumentLoadSuccess = useCallback(
     ({ numPages }: { numPages: number }) => {
       setTotalPages(numPages);

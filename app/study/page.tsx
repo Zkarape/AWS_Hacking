@@ -8,6 +8,7 @@ import dynamic from 'next/dynamic';
 import { useStudyStore } from '@/lib/store';
 import LeftSidebar from '@/components/LeftSidebar';
 import RightSidebar from '@/components/RightSidebar';
+import ReadingCoach from '@/components/ReadingCoach';
 
 // PDF viewer must be client-only (no SSR) due to pdfjs worker
 const PDFViewer = dynamic(() => import('@/components/PDFViewer'), { ssr: false });
@@ -109,6 +110,8 @@ export default function StudyPage() {
           <RightSidebar />
         </motion.aside>
       </div>
+
+      <ReadingCoach />
     </div>
   );
 }
