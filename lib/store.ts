@@ -14,6 +14,18 @@ export interface Flashcard {
   back: string;
 }
 
+export interface QuizQuestion {
+  question: string;
+  options: string[];
+  correctIndex: number;
+  explanation: string;
+}
+
+export interface QuizRange {
+  from: number;
+  to: number;
+}
+
 export interface Concept {
   term: string;
   definition: string;
@@ -145,6 +157,9 @@ interface StudyStore {
   conceptsLoading: boolean;
   flashcards: Flashcard[];
   flashcardsLoading: boolean;
+  quizQuestions: QuizQuestion[];
+  quizLoading: boolean;
+  quizRange: QuizRange | null;
   highlights: Highlight[];
   studySheet: string;
   studySheetLoading: boolean;
@@ -182,6 +197,9 @@ interface StudyStore {
   setConceptsLoading: (v: boolean) => void;
   setFlashcards: (f: Flashcard[]) => void;
   setFlashcardsLoading: (v: boolean) => void;
+  setQuizQuestions: (q: QuizQuestion[]) => void;
+  setQuizLoading: (v: boolean) => void;
+  setQuizRange: (range: QuizRange | null) => void;
   addHighlight: (h: Omit<Highlight, 'id' | 'createdAt'>) => void;
   removeHighlight: (id: string) => void;
   clearHighlights: () => void;
