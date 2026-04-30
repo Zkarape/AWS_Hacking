@@ -1,19 +1,21 @@
 'use client';
 
 import { motion, AnimatePresence } from 'framer-motion';
-import { FileText, MessageSquare, Lightbulb, Layers } from 'lucide-react';
+import { FileText, MessageSquare, Lightbulb, Layers, Highlighter } from 'lucide-react';
 import { useStudyStore } from '@/lib/store';
 import PageSummary from './PageSummary';
 import ChatPanel from './ChatPanel';
 import ConceptsPanel from './ConceptsPanel';
 import FlashcardsPanel from './FlashcardsPanel';
+import StudySheetPanel from './StudySheetPanel';
 import clsx from 'clsx';
 
 const tabs = [
-  { id: 'summary' as const, icon: FileText, label: 'Summary', color: 'text-indigo-400' },
-  { id: 'chat' as const, icon: MessageSquare, label: 'Ask AI', color: 'text-violet-400' },
-  { id: 'concepts' as const, icon: Lightbulb, label: 'Concepts', color: 'text-yellow-400' },
-  { id: 'flashcards' as const, icon: Layers, label: 'Cards', color: 'text-emerald-400' },
+  { id: 'summary' as const, icon: FileText, label: 'Summary' },
+  { id: 'chat' as const, icon: MessageSquare, label: 'Ask AI' },
+  { id: 'concepts' as const, icon: Lightbulb, label: 'Concepts' },
+  { id: 'flashcards' as const, icon: Layers, label: 'Cards' },
+  { id: 'studysheet' as const, icon: Highlighter, label: 'Sheet' },
 ];
 
 const activeColors: Record<string, string> = {
@@ -21,21 +23,22 @@ const activeColors: Record<string, string> = {
   chat: 'border-violet-500 text-violet-400',
   concepts: 'border-yellow-500 text-yellow-400',
   flashcards: 'border-emerald-500 text-emerald-400',
+  studysheet: 'border-amber-500 text-amber-400',
 };
 
 export default function RightSidebar() {
-  const { activePanel, setActivePanel } = useStudyStore();
+  const { activePanel, setActivePanel, highlights } = useStudyStore();
 
   return (
     <div className="flex flex-col h-full bg-[#0c0c18] border-l border-white/[0.06]">
       {/* Tab bar */}
-      <div className="grid grid-cols-4 border-b border-white/[0.06]">
+      <div className="grid grid-cols-5 border-b border-white/[0.06]">
         {tabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActivePanel(tab.id)}
             className={clsx(
-              'flex flex-col items-center gap-1 py-3 text-xs transition-all duration-200 border-b-2',
+              'relative flex flex-col items-center gap-1 py-3 text-xs transition-all duration-200 border-b-2',
               activePanel === tab.id
                 ? activeColors[tab.id]
                 : 'border-transparent text-slate-600 hover:text-slate-400'
@@ -43,6 +46,11 @@ export default function RightSidebar() {
           >
             <tab.icon size={13} />
             <span className="text-[10px] leading-tight">{tab.label}</span>
+            {tab.id === 'studysheet' && highlights.length > 0 && (
+              <span className="absolute top-1.5 right-2 min-w-[14px] h-[14px] px-1 flex items-center justify-center rounded-full bg-amber-500 text-[9px] font-bold text-black">
+                {highlights.length > 99 ? '99+' : highlights.length}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -62,6 +70,7 @@ export default function RightSidebar() {
             {activePanel === 'chat' && <ChatPanel />}
             {activePanel === 'concepts' && <ConceptsPanel />}
             {activePanel === 'flashcards' && <FlashcardsPanel />}
+            {activePanel === 'studysheet' && <StudySheetPanel />}
           </motion.div>
         </AnimatePresence>
       </div>

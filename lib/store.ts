@@ -46,7 +46,10 @@ interface StudyStore {
   conceptsLoading: boolean;
   flashcards: Flashcard[];
   flashcardsLoading: boolean;
-  activePanel: 'summary' | 'chat' | 'concepts' | 'flashcards';
+  highlights: Highlight[];
+  studySheet: string;
+  studySheetLoading: boolean;
+  activePanel: ActivePanel;
   bookmarks: number[];
   searchQuery: string;
   secondsOnPage: number;
@@ -73,7 +76,12 @@ interface StudyStore {
   setConceptsLoading: (v: boolean) => void;
   setFlashcards: (f: Flashcard[]) => void;
   setFlashcardsLoading: (v: boolean) => void;
-  setActivePanel: (p: StudyStore['activePanel']) => void;
+  addHighlight: (h: Omit<Highlight, 'id' | 'createdAt'>) => void;
+  removeHighlight: (id: string) => void;
+  clearHighlights: () => void;
+  setStudySheet: (s: string) => void;
+  setStudySheetLoading: (v: boolean) => void;
+  setActivePanel: (p: ActivePanel) => void;
   toggleBookmark: (page: number) => void;
   setSearchQuery: (q: string) => void;
   tickPageTimer: () => void;
