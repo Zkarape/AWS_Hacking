@@ -14,6 +14,18 @@ export interface Flashcard {
   back: string;
 }
 
+export interface QuizQuestion {
+  question: string;
+  options: string[];
+  correctIndex: number;
+  explanation: string;
+}
+
+export interface QuizRange {
+  from: number;
+  to: number;
+}
+
 export interface Concept {
   term: string;
   definition: string;
@@ -124,6 +136,9 @@ interface StudyStore {
   conceptsLoading: boolean;
   flashcards: Flashcard[];
   flashcardsLoading: boolean;
+  quizQuestions: QuizQuestion[];
+  quizLoading: boolean;
+  quizRange: QuizRange | null;
   highlights: Highlight[];
   studySheet: string;
   studySheetLoading: boolean;
@@ -161,6 +176,9 @@ interface StudyStore {
   setConceptsLoading: (v: boolean) => void;
   setFlashcards: (f: Flashcard[]) => void;
   setFlashcardsLoading: (v: boolean) => void;
+  setQuizQuestions: (q: QuizQuestion[]) => void;
+  setQuizLoading: (v: boolean) => void;
+  setQuizRange: (range: QuizRange | null) => void;
   addHighlight: (h: Omit<Highlight, 'id' | 'createdAt'>) => void;
   removeHighlight: (id: string) => void;
   clearHighlights: () => void;
@@ -215,6 +233,9 @@ const docResetSlice = {
   summary: '',
   concepts: [] as Concept[],
   flashcards: [] as Flashcard[],
+  quizQuestions: [] as QuizQuestion[],
+  quizLoading: false,
+  quizRange: null as QuizRange | null,
   bookmarks: [] as number[],
   notes: [] as Note[],
 };
@@ -238,6 +259,9 @@ export const useStudyStore = create<StudyStore>()(
       conceptsLoading: false,
       flashcards: [],
       flashcardsLoading: false,
+      quizQuestions: [],
+      quizLoading: false,
+      quizRange: null,
       activePanel: 'summary',
       bookmarks: [],
       searchQuery: '',
@@ -359,6 +383,9 @@ export const useStudyStore = create<StudyStore>()(
       setConceptsLoading: (v) => set({ conceptsLoading: v }),
       setFlashcards: (f) => set({ flashcards: f }),
       setFlashcardsLoading: (v) => set({ flashcardsLoading: v }),
+      setQuizQuestions: (q) => set({ quizQuestions: q }),
+      setQuizLoading: (v) => set({ quizLoading: v }),
+      setQuizRange: (range) => set({ quizRange: range }),
       setActivePanel: (p) => set({ activePanel: p }),
       toggleBookmark: (page) =>
         set((s) => ({
