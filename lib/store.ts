@@ -130,6 +130,7 @@ interface StudyStore {
   activePanel: ActivePanel;
   bookmarks: number[];
   searchQuery: string;
+  notes: Note[];
   secondsOnPage: number;
   lastPageChangeTime: number;
   coachDismissedPages: number[];
@@ -163,6 +164,9 @@ interface StudyStore {
   setActivePanel: (p: ActivePanel) => void;
   toggleBookmark: (page: number) => void;
   setSearchQuery: (q: string) => void;
+  addNote: (text: string, page: number) => void;
+  removeNote: (id: string) => void;
+  clearNotes: () => void;
   tickPageTimer: () => void;
   dismissCoachForPage: (page: number) => void;
   setPendingChatPrompt: (prompt: string) => void;
@@ -194,6 +198,7 @@ const docResetSlice = {
   concepts: [] as Concept[],
   flashcards: [] as Flashcard[],
   bookmarks: [] as number[],
+  notes: [] as Note[],
 };
 
 export const useStudyStore = create<StudyStore>()(
@@ -218,6 +223,7 @@ export const useStudyStore = create<StudyStore>()(
       activePanel: 'summary',
       bookmarks: [],
       searchQuery: '',
+      notes: [],
 
       setPdfFile: (file) => {
         revokeUrl(get().pdfUrl);
@@ -343,6 +349,19 @@ export const useStudyStore = create<StudyStore>()(
             : [...s.bookmarks, page],
         })),
       setSearchQuery: (q) => set({ searchQuery: q }),
+      addNote: (text, page) => {
+        const trimmed = text.trim();
+        if (!trimmed) return;
+        const note: Note = {
+          id: genId(),
+          text: trimmed,
+          page,
+          createdAt: Date.now(),
+        };
+        set((s) => ({ notes: [note, ...s.notes] }));
+      },
+      removeNote: (id) => set((s) => ({ notes: s.notes.filter((n) => n.id !== id) })),
+      clearNotes: () => set({ notes: [] }),
     }),
     {
       name: 'readmind-history',
