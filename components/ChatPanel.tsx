@@ -13,6 +13,9 @@ export default function ChatPanel() {
     clearChat,
     currentPage,
     pageText,
+    totalPages,
+    documentIndex,
+    searchDocument,
     pendingChatPrompt,
     setPendingChatPrompt,
   } = useStudyStore();
@@ -38,6 +41,11 @@ export default function ChatPanel() {
     abortRef.current?.abort();
     abortRef.current = new AbortController();
 
+    const documentMatches = searchDocument(content, 5).map((m) => ({
+      page: m.page,
+      snippet: m.snippet,
+    }));
+
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
@@ -46,6 +54,10 @@ export default function ChatPanel() {
           messages: [...chatMessages, userMsg],
           selection: selectedText,
           pageText: pageText[currentPage] ?? '',
+          currentPage,
+          totalPages,
+          indexedPageCount: documentIndex.length,
+          documentMatches,
         }),
         signal: abortRef.current.signal,
       });

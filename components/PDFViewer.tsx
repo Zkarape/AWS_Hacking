@@ -148,9 +148,9 @@ export default function PDFViewer() {
         .filter((i): i is { str: string; dir: string; width: number; height: number; transform: number[]; fontName: string; hasEOL: boolean } => 'str' in i)
         .map((i) => i.str)
         .join(' ');
-      setPageText(currentPage, text);
+      setPageText(page.pageNumber, text);
     },
-    [setPageText, currentPage]
+    [setPageText]
   );
 
   // Text selection detection
