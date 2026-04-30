@@ -6,6 +6,7 @@ import { Document, Page, pdfjs } from 'react-pdf';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Maximize2, Sparkles, Moon, Sun } from 'lucide-react';
 import { useStudyStore, type HighlightColor } from '@/lib/store';
+import { TRANSLATION_LANGUAGES, translateText, type TranslationLanguage } from '@/lib/translate';
 import 'react-pdf/dist/esm/Page/TextLayer.css';
 import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
 
@@ -27,7 +28,17 @@ const COLOR_BG: Record<HighlightColor, string> = {
   purple: 'rgba(216, 180, 254, 0.45)',
 };
 
-type SelectionTooltip = { x: number; y: number; text: string };
+type SelectionTooltip = {
+  x: number;
+  y: number;
+  text: string;
+  translatedText: string;
+  isTranslating: boolean;
+  translationError: string | null;
+};
+
+const TRANSLATE_DEBOUNCE_MS = 250;
+const TRANSLATE_LANG_KEY = 'readmind:translate-lang';
 
 export default function PDFViewer() {
   const {
@@ -50,6 +61,62 @@ export default function PDFViewer() {
   const pageWrapperRef = useRef<HTMLDivElement>(null);
   const [selectionTooltip, setSelectionTooltip] = useState<SelectionTooltip | null>(null);
   const [hoveredHighlight, setHoveredHighlight] = useState<string | null>(null);
+  const [targetLang, setTargetLang] = useState<TranslationLanguage>('English');
+  const translationAbortRef = useRef<AbortController | null>(null);
+  const translationDebounceRef = useRef<number | null>(null);
+
+  // Restore last-used target language across sessions.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const stored = window.localStorage.getItem(TRANSLATE_LANG_KEY);
+    if (stored && (TRANSLATION_LANGUAGES as readonly string[]).includes(stored)) {
+      setTargetLang(stored as TranslationLanguage);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(TRANSLATE_LANG_KEY, targetLang);
+  }, [targetLang]);
+
+  const cancelPendingTranslation = useCallback(() => {
+    if (translationDebounceRef.current !== null) {
+      window.clearTimeout(translationDebounceRef.current);
+      translationDebounceRef.current = null;
+    }
+    translationAbortRef.current?.abort();
+    translationAbortRef.current = null;
+  }, []);
+
+  const runTranslation = useCallback(
+    (text: string, lang: TranslationLanguage) => {
+      cancelPendingTranslation();
+      translationDebounceRef.current = window.setTimeout(() => {
+        const controller = new AbortController();
+        translationAbortRef.current = controller;
+        translateText(text, lang, controller.signal)
+          .then((translation) => {
+            if (controller.signal.aborted) return;
+            setSelectionTooltip((prev) =>
+              prev && prev.text === text
+                ? { ...prev, translatedText: translation, isTranslating: false, translationError: null }
+                : prev
+            );
+          })
+          .catch((err: unknown) => {
+            if (controller.signal.aborted) return;
+            if (err instanceof DOMException && err.name === 'AbortError') return;
+            const message = err instanceof Error ? err.message : 'Translation failed';
+            setSelectionTooltip((prev) =>
+              prev && prev.text === text
+                ? { ...prev, isTranslating: false, translationError: message }
+                : prev
+            );
+          });
+      }, TRANSLATE_DEBOUNCE_MS);
+    },
+    [cancelPendingTranslation]
+  );
 
   useEffect(() => {
     const obs = new ResizeObserver((entries) => {
@@ -95,15 +162,42 @@ export default function PDFViewer() {
         const range = sel?.getRangeAt(0);
         const rect = range?.getBoundingClientRect();
         if (rect && rect.width > 0) {
-          setSelectionTooltip({ x: rect.left + rect.width / 2, y: rect.top - 10, text });
+          setSelectionTooltip((prev) => {
+            if (prev && prev.text === text) {
+              return { ...prev, x: rect.left + rect.width / 2, y: rect.top - 10 };
+            }
+            return {
+              x: rect.left + rect.width / 2,
+              y: rect.top - 10,
+              text,
+              translatedText: '',
+              isTranslating: true,
+              translationError: null,
+            };
+          });
+          runTranslation(text, targetLang);
         }
       } else {
+        cancelPendingTranslation();
         setSelectionTooltip(null);
       }
     };
     document.addEventListener('selectionchange', handleSelectionChange);
-    return () => document.removeEventListener('selectionchange', handleSelectionChange);
-  }, []);
+    return () => {
+      document.removeEventListener('selectionchange', handleSelectionChange);
+      cancelPendingTranslation();
+    };
+  }, [runTranslation, cancelPendingTranslation, targetLang]);
+
+  // Re-translate the active selection when the target language changes.
+  useEffect(() => {
+    if (!selectionTooltip) return;
+    setSelectionTooltip((prev) =>
+      prev ? { ...prev, isTranslating: true, translationError: null, translatedText: '' } : prev
+    );
+    runTranslation(selectionTooltip.text, targetLang);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetLang]);
 
   const getPageElement = (): HTMLElement | null =>
     pageWrapperRef.current?.querySelector('.react-pdf__Page') ?? null;
@@ -112,6 +206,7 @@ export default function PDFViewer() {
     if (!selectionTooltip) return;
     setSelectedText(selectionTooltip.text);
     setActivePanel('chat');
+    cancelPendingTranslation();
     setSelectionTooltip(null);
     window.getSelection()?.removeAllRanges();
   };
@@ -159,6 +254,7 @@ export default function PDFViewer() {
       captureWidth: pageRect.width,
     });
 
+    cancelPendingTranslation();
     setSelectionTooltip(null);
     sel.removeAllRanges();
   };
@@ -349,32 +445,72 @@ export default function PDFViewer() {
             exit={{ opacity: 0, scale: 0.8, y: 5 }}
             transition={{ duration: 0.15 }}
           >
-            <div className="-translate-x-1/2 -translate-y-full flex items-center gap-1 px-2 py-1.5 rounded-full bg-[#1a1a2e] border border-white/10 shadow-xl shadow-black/50">
-              {HIGHLIGHT_COLORS.map((c) => (
+            <div className="-translate-x-1/2 -translate-y-full flex flex-col items-stretch gap-1.5">
+              <div className="flex items-center gap-1 px-2 py-1.5 rounded-full bg-[#1a1a2e] border border-white/10 shadow-xl shadow-black/50">
+                {HIGHLIGHT_COLORS.map((c) => (
+                  <button
+                    key={c.id}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      handleHighlight(c.id);
+                    }}
+                    className={`w-5 h-5 rounded-full ring-1 ring-white/20 hover:ring-2 hover:${c.ring} hover:scale-110 transition-all`}
+                    style={{ background: c.bg }}
+                    title={`Highlight ${c.label}`}
+                    aria-label={`Highlight ${c.label}`}
+                  />
+                ))}
+                <div className="w-px h-4 bg-white/10 mx-0.5" />
                 <button
-                  key={c.id}
                   onMouseDown={(e) => {
                     e.preventDefault();
-                    handleHighlight(c.id);
+                    handleAskAbout();
                   }}
-                  className={`w-5 h-5 rounded-full ring-1 ring-white/20 hover:ring-2 hover:${c.ring} hover:scale-110 transition-all`}
-                  style={{ background: c.bg }}
-                  title={`Highlight ${c.label}`}
-                  aria-label={`Highlight ${c.label}`}
-                />
-              ))}
-              <div className="w-px h-4 bg-white/10 mx-0.5" />
-              <button
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  handleAskAbout();
-                }}
-                className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition-colors"
-                title="Ask AI about this"
-              >
-                <Sparkles size={11} />
-                <span>Ask</span>
-              </button>
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition-colors"
+                  title="Ask AI about this"
+                >
+                  <Sparkles size={11} />
+                  <span>Ask</span>
+                </button>
+              </div>
+
+              <div className="w-72 max-w-[80vw] rounded-xl bg-[#1a1a2e] border border-white/10 shadow-xl shadow-black/50 px-3 py-2">
+                <div className="flex items-center justify-between gap-2 mb-1.5">
+                  <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-slate-400">
+                    <Languages size={11} />
+                    <span>Translation</span>
+                  </div>
+                  <select
+                    value={targetLang}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onChange={(e) => setTargetLang(e.target.value as TranslationLanguage)}
+                    className="text-[11px] bg-white/5 border border-white/10 rounded-md px-1.5 py-0.5 text-slate-200 focus:outline-none focus:border-indigo-500/60"
+                    aria-label="Translation target language"
+                  >
+                    {TRANSLATION_LANGUAGES.map((lang) => (
+                      <option key={lang} value={lang} className="bg-[#1a1a2e]">
+                        {lang}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {selectionTooltip.translationError ? (
+                  <p className="text-xs text-rose-300 leading-relaxed">
+                    {selectionTooltip.translationError}
+                  </p>
+                ) : selectionTooltip.isTranslating && !selectionTooltip.translatedText ? (
+                  <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
+                    <span>Translating…</span>
+                  </div>
+                ) : selectionTooltip.translatedText ? (
+                  <p className="text-xs text-slate-100 leading-relaxed whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
+                    {selectionTooltip.translatedText}
+                  </p>
+                ) : (
+                  <p className="text-xs text-slate-500">No translation available.</p>
+                )}
+              </div>
             </div>
           </motion.div>
         )}
