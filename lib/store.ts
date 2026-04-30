@@ -130,6 +130,7 @@ interface StudyStore {
   activePanel: ActivePanel;
   bookmarks: number[];
   searchQuery: string;
+  notes: Note[];
   secondsOnPage: number;
   lastPageChangeTime: number;
   coachDismissedPages: number[];
@@ -168,6 +169,9 @@ interface StudyStore {
   setActivePanel: (p: ActivePanel) => void;
   toggleBookmark: (page: number) => void;
   setSearchQuery: (q: string) => void;
+  addNote: (text: string, page: number) => void;
+  removeNote: (id: string) => void;
+  clearNotes: () => void;
   tickPageTimer: () => void;
   dismissCoachForPage: (page: number) => void;
   setPendingChatPrompt: (prompt: string) => void;
@@ -212,6 +216,7 @@ const docResetSlice = {
   concepts: [] as Concept[],
   flashcards: [] as Flashcard[],
   bookmarks: [] as number[],
+  notes: [] as Note[],
 };
 
 export const useStudyStore = create<StudyStore>()(
@@ -236,11 +241,7 @@ export const useStudyStore = create<StudyStore>()(
       activePanel: 'summary',
       bookmarks: [],
       searchQuery: '',
-      dailyPageGoal: DEFAULT_DAILY_PAGE_GOAL,
-      pagesReadToday: 0,
-      pagesReadDate: todayKey(),
-      readPageKeysToday: [],
-      goalCelebratedDate: null,
+      notes: [],
 
       setPdfFile: (file) => {
         revokeUrl(get().pdfUrl);
@@ -366,27 +367,19 @@ export const useStudyStore = create<StudyStore>()(
             : [...s.bookmarks, page],
         })),
       setSearchQuery: (q) => set({ searchQuery: q }),
-      setDailyPageGoal: (n) =>
-        set(() => ({
-          dailyPageGoal: Math.max(1, Math.min(500, Math.floor(Number.isFinite(n) ? n : DEFAULT_DAILY_PAGE_GOAL))),
-        })),
-      recordPageRead: (pdfId, page) =>
-        set((s) => {
-          if (!pdfId || page <= 0) return s;
-          const today = todayKey();
-          const isNewDay = s.pagesReadDate !== today;
-          const baseCount = isNewDay ? 0 : s.pagesReadToday;
-          const baseKeys = isNewDay ? [] : s.readPageKeysToday;
-          const key = `${pdfId}:${page}`;
-          if (!isNewDay && baseKeys.includes(key)) return s;
-          return {
-            pagesReadDate: today,
-            readPageKeysToday: [...baseKeys, key],
-            pagesReadToday: baseCount + 1,
-            ...(isNewDay ? { goalCelebratedDate: null } : {}),
-          };
-        }),
-      markGoalCelebrated: () => set({ goalCelebratedDate: todayKey() }),
+      addNote: (text, page) => {
+        const trimmed = text.trim();
+        if (!trimmed) return;
+        const note: Note = {
+          id: genId(),
+          text: trimmed,
+          page,
+          createdAt: Date.now(),
+        };
+        set((s) => ({ notes: [note, ...s.notes] }));
+      },
+      removeNote: (id) => set((s) => ({ notes: s.notes.filter((n) => n.id !== id) })),
+      clearNotes: () => set({ notes: [] }),
     }),
     {
       name: 'readmind-history',
