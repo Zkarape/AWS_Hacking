@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sparkles, X } from 'lucide-react';
+import { Compass, Sparkles, X } from 'lucide-react';
 import { useStudyStore } from '@/lib/store';
 
 const TRIGGER_SECONDS = 240;
@@ -16,14 +16,20 @@ export default function ReadingCoach() {
     setActivePanel,
     setPendingChatPrompt,
     pdfUrl,
+    isLostBridgeVisible,
+    lostBridge,
+    lostBridgeLoading,
+    pageHistory,
+    closeLostBridge,
   } = useStudyStore();
 
-  const isVisible = useMemo(
+  const isCoachVisible = useMemo(
     () =>
       !!pdfUrl &&
+      !isLostBridgeVisible &&
       secondsOnPage >= TRIGGER_SECONDS &&
       !coachDismissedPages.includes(currentPage),
-    [pdfUrl, secondsOnPage, coachDismissedPages, currentPage]
+    [pdfUrl, isLostBridgeVisible, secondsOnPage, coachDismissedPages, currentPage]
   );
 
   const minutes = Math.floor(secondsOnPage / 60);
@@ -40,52 +46,126 @@ export default function ReadingCoach() {
     dismissCoachForPage(currentPage);
   };
 
+  const bridgePagesLabel =
+    pageHistory.length > 1
+      ? `pages ${pageHistory.join(' → ')}`
+      : `page ${pageHistory[0] ?? currentPage}`;
+
   return (
-    <AnimatePresence>
-      {isVisible && (
-        <motion.div
-          initial={{ opacity: 0, y: 20, scale: 0.95 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: 20, scale: 0.95 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 28 }}
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 max-w-md w-[calc(100%-2rem)]"
-          role="dialog"
-          aria-live="polite"
-        >
-          <div className="relative flex items-start gap-3 px-4 py-3 rounded-2xl bg-gradient-to-br from-indigo-950/95 to-violet-950/95 border border-indigo-700/50 shadow-2xl shadow-indigo-950/60 backdrop-blur-md">
-            <div className="shrink-0 w-9 h-9 rounded-xl bg-indigo-600/30 border border-indigo-500/40 flex items-center justify-center">
-              <Sparkles size={16} className="text-indigo-300" />
+    <>
+      <AnimatePresence>
+        {isCoachVisible && (
+          <motion.div
+            key="coach"
+            initial={{ opacity: 0, y: 20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.95 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 28 }}
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 max-w-md w-[calc(100%-2rem)]"
+            role="dialog"
+            aria-live="polite"
+          >
+            <div className="relative flex items-start gap-3 px-4 py-3 rounded-2xl bg-gradient-to-br from-indigo-950/95 to-violet-950/95 border border-indigo-700/50 shadow-2xl shadow-indigo-950/60 backdrop-blur-md">
+              <div className="shrink-0 w-9 h-9 rounded-xl bg-indigo-600/30 border border-indigo-500/40 flex items-center justify-center">
+                <Sparkles size={16} className="text-indigo-300" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-indigo-100 leading-snug">
+                  You've been on this page for {minutes} minute{minutes === 1 ? '' : 's'}
+                  {' — '}want me to break down the hard parts?
+                </p>
+                <div className="flex items-center gap-2 mt-2.5">
+                  <button
+                    onClick={handleAccept}
+                    className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition-colors"
+                  >
+                    Yes, break it down
+                  </button>
+                  <button
+                    onClick={handleDismiss}
+                    className="px-3 py-1.5 rounded-lg text-indigo-300/70 hover:text-indigo-200 hover:bg-white/5 text-xs font-medium transition-colors"
+                  >
+                    Not now
+                  </button>
+                </div>
+              </div>
+              <button
+                onClick={handleDismiss}
+                aria-label="Dismiss"
+                className="shrink-0 p-1 rounded-md text-indigo-400/60 hover:text-indigo-200 hover:bg-white/5 transition-colors"
+              >
+                <X size={14} />
+              </button>
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm text-indigo-100 leading-snug">
-                You've been on this page for {minutes} minute{minutes === 1 ? '' : 's'}
-                {' — '}want me to break down the hard parts?
-              </p>
-              <div className="flex items-center gap-2 mt-2.5">
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isLostBridgeVisible && (
+          <motion.div
+            key="lost"
+            initial={{ opacity: 0, y: 20, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.97 }}
+            transition={{ type: 'spring', stiffness: 280, damping: 26 }}
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 max-w-xl w-[calc(100%-2rem)]"
+            role="dialog"
+            aria-live="polite"
+            aria-label="Bridging recent pages"
+          >
+            <div className="relative flex flex-col rounded-2xl bg-gradient-to-br from-rose-950/95 to-indigo-950/95 border border-rose-700/40 shadow-2xl shadow-rose-950/60 backdrop-blur-md overflow-hidden">
+              <div className="flex items-center gap-3 px-4 py-3 border-b border-white/[0.06]">
+                <div className="shrink-0 w-9 h-9 rounded-xl bg-rose-600/30 border border-rose-500/40 flex items-center justify-center">
+                  <Compass
+                    size={16}
+                    className={`text-rose-200 ${lostBridgeLoading ? 'animate-spin' : ''}`}
+                  />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-rose-100 leading-tight">
+                    Bridging your last {pageHistory.length} page{pageHistory.length === 1 ? '' : 's'}
+                  </p>
+                  <p className="text-[11px] text-rose-300/70 mt-0.5 truncate">
+                    Connecting concepts across {bridgePagesLabel}
+                  </p>
+                </div>
                 <button
-                  onClick={handleAccept}
-                  className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition-colors"
+                  onClick={closeLostBridge}
+                  aria-label="Close bridge"
+                  className="shrink-0 p-1.5 rounded-md text-rose-300/70 hover:text-rose-100 hover:bg-white/5 transition-colors"
                 >
-                  Yes, break it down
-                </button>
-                <button
-                  onClick={handleDismiss}
-                  className="px-3 py-1.5 rounded-lg text-indigo-300/70 hover:text-indigo-200 hover:bg-white/5 text-xs font-medium transition-colors"
-                >
-                  Not now
+                  <X size={14} />
                 </button>
               </div>
+              <div className="px-4 py-3 max-h-[40vh] overflow-y-auto">
+                {lostBridgeLoading && !lostBridge ? (
+                  <div className="space-y-2.5">
+                    {[88, 72, 95, 60, 80].map((w, i) => (
+                      <motion.div
+                        key={i}
+                        className="h-3 rounded-full shimmer"
+                        style={{ width: `${w}%` }}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ delay: i * 0.08 }}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div
+                    className={`text-sm text-rose-50/90 leading-relaxed whitespace-pre-wrap ${
+                      lostBridgeLoading ? 'typing-cursor' : ''
+                    }`}
+                  >
+                    {lostBridge}
+                  </div>
+                )}
+              </div>
             </div>
-            <button
-              onClick={handleDismiss}
-              aria-label="Dismiss"
-              className="shrink-0 p-1 rounded-md text-indigo-400/60 hover:text-indigo-200 hover:bg-white/5 transition-colors"
-            >
-              <X size={14} />
-            </button>
-          </div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
   );
 }

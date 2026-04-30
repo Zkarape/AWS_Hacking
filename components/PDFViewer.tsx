@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { Document, Page, pdfjs } from 'react-pdf';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Maximize2, Sparkles, Moon, Sun } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Maximize2, Sparkles, Moon, Sun, Compass } from 'lucide-react';
 import { useStudyStore, type HighlightColor } from '@/lib/store';
 import 'react-pdf/dist/esm/Page/TextLayer.css';
 import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
@@ -35,12 +35,22 @@ export default function PDFViewer() {
     currentPage,
     totalPages,
     currentPdfId,
+    pageText,
+    pageHistory,
+    highlights,
+    lostBridgeLoading,
     setCurrentPage,
     setTotalPages,
     setHistoryPageCount,
     setPageText,
     setSelectedText,
     setActivePanel,
+    addHighlight,
+    removeHighlight,
+    tickPageTimer,
+    openLostBridge,
+    setLostBridge,
+    setLostBridgeLoading,
   } = useStudyStore();
 
   const [scale, setScale] = useState(1.2);
@@ -50,6 +60,7 @@ export default function PDFViewer() {
   const pageWrapperRef = useRef<HTMLDivElement>(null);
   const [selectionTooltip, setSelectionTooltip] = useState<SelectionTooltip | null>(null);
   const [hoveredHighlight, setHoveredHighlight] = useState<string | null>(null);
+  const lostAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     const obs = new ResizeObserver((entries) => {
@@ -168,6 +179,51 @@ export default function PDFViewer() {
     setCurrentPage(clamped);
   };
 
+  const handleImLost = async () => {
+    if (lostBridgeLoading) return;
+    const pages = pageHistory
+      .map((page) => ({ page, text: pageText[page] ?? '' }))
+      .filter((p) => p.text.trim().length > 0);
+
+    openLostBridge();
+
+    if (pages.length === 0) {
+      setLostBridge(
+        "I don't have any extracted text from your recent pages yet — give the PDF a moment to load and try again."
+      );
+      setLostBridgeLoading(false);
+      return;
+    }
+
+    lostAbortRef.current?.abort();
+    lostAbortRef.current = new AbortController();
+
+    try {
+      const res = await fetch('/api/summary/lost', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pages, currentPage, totalPages }),
+        signal: lostAbortRef.current.signal,
+      });
+
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder();
+      let full = '';
+      while (reader) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        full += decoder.decode(value, { stream: true });
+        setLostBridge(full);
+      }
+    } catch (e: unknown) {
+      if (e instanceof Error && e.name !== 'AbortError') {
+        setLostBridge('Could not reach the AI. Check your API key and try again.');
+      }
+    } finally {
+      setLostBridgeLoading(false);
+    }
+  };
+
   const pageHighlights = useMemo(
     () => highlights.filter((h) => h.page === currentPage),
     [highlights, currentPage]
@@ -233,6 +289,16 @@ export default function PDFViewer() {
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={handleImLost}
+            disabled={lostBridgeLoading}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs text-rose-200 bg-rose-950/50 border border-rose-700/50 hover:border-rose-500/70 hover:bg-rose-900/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            title="I'm Lost — bridge concepts across your last 3 pages"
+            aria-label="I'm Lost — bridge concepts across the last 3 pages"
+          >
+            <Compass size={12} className={lostBridgeLoading ? 'animate-spin' : ''} />
+            <span>{lostBridgeLoading ? 'Bridging…' : "I'm Lost"}</span>
+          </button>
           {pageHighlights.length > 0 && (
             <button
               onClick={() => setActivePanel('studysheet')}
