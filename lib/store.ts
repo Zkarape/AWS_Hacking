@@ -18,6 +18,27 @@ export interface Concept {
   emoji: string;
 }
 
+export type HighlightColor = 'yellow' | 'green' | 'pink' | 'blue' | 'purple';
+
+export interface HighlightRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface Highlight {
+  id: string;
+  page: number;
+  text: string;
+  color: HighlightColor;
+  rects: HighlightRect[];
+  captureWidth: number;
+  createdAt: number;
+}
+
+export type ActivePanel = 'summary' | 'chat' | 'concepts' | 'flashcards' | 'studysheet';
+
 interface StudyStore {
   pdfFile: File | null;
   pdfUrl: string | null;
@@ -32,7 +53,10 @@ interface StudyStore {
   conceptsLoading: boolean;
   flashcards: Flashcard[];
   flashcardsLoading: boolean;
-  activePanel: 'summary' | 'chat' | 'concepts' | 'flashcards';
+  highlights: Highlight[];
+  studySheet: string;
+  studySheetLoading: boolean;
+  activePanel: ActivePanel;
   bookmarks: number[];
   searchQuery: string;
 
@@ -49,12 +73,22 @@ interface StudyStore {
   setConceptsLoading: (v: boolean) => void;
   setFlashcards: (f: Flashcard[]) => void;
   setFlashcardsLoading: (v: boolean) => void;
-  setActivePanel: (p: StudyStore['activePanel']) => void;
+  addHighlight: (h: Omit<Highlight, 'id' | 'createdAt'>) => void;
+  removeHighlight: (id: string) => void;
+  clearHighlights: () => void;
+  setStudySheet: (s: string) => void;
+  setStudySheetLoading: (v: boolean) => void;
+  setActivePanel: (p: ActivePanel) => void;
   toggleBookmark: (page: number) => void;
   setSearchQuery: (q: string) => void;
 }
 
-export const useStudyStore = create<StudyStore>((set, get) => ({
+const newId = () =>
+  typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+export const useStudyStore = create<StudyStore>((set) => ({
   pdfFile: null,
   pdfUrl: null,
   currentPage: 1,
@@ -68,13 +102,27 @@ export const useStudyStore = create<StudyStore>((set, get) => ({
   conceptsLoading: false,
   flashcards: [],
   flashcardsLoading: false,
+  highlights: [],
+  studySheet: '',
+  studySheetLoading: false,
   activePanel: 'summary',
   bookmarks: [],
   searchQuery: '',
 
   setPdfFile: (file) => {
     const url = URL.createObjectURL(file);
-    set({ pdfFile: file, pdfUrl: url, currentPage: 1, chatMessages: [], summary: '', concepts: [], flashcards: [] });
+    set({
+      pdfFile: file,
+      pdfUrl: url,
+      currentPage: 1,
+      chatMessages: [],
+      summary: '',
+      concepts: [],
+      flashcards: [],
+      highlights: [],
+      studySheet: '',
+      bookmarks: [],
+    });
   },
   setCurrentPage: (page) => set({ currentPage: page }),
   setTotalPages: (n) => set({ totalPages: n }),
@@ -88,6 +136,16 @@ export const useStudyStore = create<StudyStore>((set, get) => ({
   setConceptsLoading: (v) => set({ conceptsLoading: v }),
   setFlashcards: (f) => set({ flashcards: f }),
   setFlashcardsLoading: (v) => set({ flashcardsLoading: v }),
+  addHighlight: (h) =>
+    set((s) => ({
+      highlights: [...s.highlights, { ...h, id: newId(), createdAt: Date.now() }],
+      studySheet: '',
+    })),
+  removeHighlight: (id) =>
+    set((s) => ({ highlights: s.highlights.filter((h) => h.id !== id), studySheet: '' })),
+  clearHighlights: () => set({ highlights: [], studySheet: '' }),
+  setStudySheet: (s) => set({ studySheet: s }),
+  setStudySheetLoading: (v) => set({ studySheetLoading: v }),
   setActivePanel: (p) => set({ activePanel: p }),
   toggleBookmark: (page) =>
     set((s) => ({

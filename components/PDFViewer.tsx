@@ -1,24 +1,55 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { Document, Page, pdfjs } from 'react-pdf';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
-import { useStudyStore } from '@/lib/store';
+import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Maximize2, Sparkles } from 'lucide-react';
+import { useStudyStore, type HighlightColor } from '@/lib/store';
 import 'react-pdf/dist/esm/Page/TextLayer.css';
 import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
 
 pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
 
+const HIGHLIGHT_COLORS: { id: HighlightColor; label: string; bg: string; ring: string }[] = [
+  { id: 'yellow', label: 'Yellow', bg: '#fde047', ring: 'ring-yellow-300/60' },
+  { id: 'green', label: 'Green', bg: '#86efac', ring: 'ring-green-300/60' },
+  { id: 'pink', label: 'Pink', bg: '#f9a8d4', ring: 'ring-pink-300/60' },
+  { id: 'blue', label: 'Blue', bg: '#93c5fd', ring: 'ring-blue-300/60' },
+  { id: 'purple', label: 'Purple', bg: '#d8b4fe', ring: 'ring-purple-300/60' },
+];
+
+const COLOR_BG: Record<HighlightColor, string> = {
+  yellow: 'rgba(253, 224, 71, 0.45)',
+  green: 'rgba(134, 239, 172, 0.45)',
+  pink: 'rgba(249, 168, 212, 0.45)',
+  blue: 'rgba(147, 197, 253, 0.45)',
+  purple: 'rgba(216, 180, 254, 0.45)',
+};
+
+type SelectionTooltip = { x: number; y: number; text: string };
+
 export default function PDFViewer() {
-  const { pdfUrl, currentPage, totalPages, setCurrentPage, setTotalPages, setPageText, setSelectedText, setActivePanel } =
-    useStudyStore();
+  const {
+    pdfUrl,
+    currentPage,
+    totalPages,
+    setCurrentPage,
+    setTotalPages,
+    setPageText,
+    setSelectedText,
+    setActivePanel,
+    highlights,
+    addHighlight,
+    removeHighlight,
+  } = useStudyStore();
 
   const [scale, setScale] = useState(1.2);
   const [containerWidth, setContainerWidth] = useState(700);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [selectionTooltip, setSelectionTooltip] = useState<{ x: number; y: number; text: string } | null>(null);
+  const pageWrapperRef = useRef<HTMLDivElement>(null);
+  const [selectionTooltip, setSelectionTooltip] = useState<SelectionTooltip | null>(null);
+  const [hoveredHighlight, setHoveredHighlight] = useState<string | null>(null);
 
   useEffect(() => {
     const obs = new ResizeObserver((entries) => {
@@ -53,10 +84,10 @@ export default function PDFViewer() {
     const handleSelectionChange = () => {
       const sel = window.getSelection();
       const text = sel?.toString().trim() ?? '';
-      if (text.length > 10) {
+      if (text.length > 3) {
         const range = sel?.getRangeAt(0);
         const rect = range?.getBoundingClientRect();
-        if (rect) {
+        if (rect && rect.width > 0) {
           setSelectionTooltip({ x: rect.left + rect.width / 2, y: rect.top - 10, text });
         }
       } else {
@@ -67,6 +98,9 @@ export default function PDFViewer() {
     return () => document.removeEventListener('selectionchange', handleSelectionChange);
   }, []);
 
+  const getPageElement = (): HTMLElement | null =>
+    pageWrapperRef.current?.querySelector('.react-pdf__Page') ?? null;
+
   const handleAskAbout = () => {
     if (!selectionTooltip) return;
     setSelectedText(selectionTooltip.text);
@@ -75,10 +109,64 @@ export default function PDFViewer() {
     window.getSelection()?.removeAllRanges();
   };
 
+  const handleHighlight = (color: HighlightColor) => {
+    if (!selectionTooltip) return;
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) {
+      setSelectionTooltip(null);
+      return;
+    }
+    const pageEl = getPageElement();
+    if (!pageEl) {
+      setSelectionTooltip(null);
+      return;
+    }
+    const pageRect = pageEl.getBoundingClientRect();
+
+    // Aggregate rects across all ranges (multi-line / multi-paragraph selections)
+    const rects: { x: number; y: number; width: number; height: number }[] = [];
+    for (let i = 0; i < sel.rangeCount; i++) {
+      const range = sel.getRangeAt(i);
+      const clientRects = Array.from(range.getClientRects());
+      for (const r of clientRects) {
+        if (r.width <= 0 || r.height <= 0) continue;
+        rects.push({
+          x: r.left - pageRect.left,
+          y: r.top - pageRect.top,
+          width: r.width,
+          height: r.height,
+        });
+      }
+    }
+
+    if (rects.length === 0) {
+      setSelectionTooltip(null);
+      return;
+    }
+
+    addHighlight({
+      page: currentPage,
+      text: selectionTooltip.text,
+      color,
+      rects,
+      captureWidth: pageRect.width,
+    });
+
+    setSelectionTooltip(null);
+    sel.removeAllRanges();
+  };
+
   const goTo = (page: number) => {
     const clamped = Math.max(1, Math.min(totalPages, page));
     setCurrentPage(clamped);
   };
+
+  const pageHighlights = useMemo(
+    () => highlights.filter((h) => h.page === currentPage),
+    [highlights, currentPage]
+  );
+
+  const renderedWidth = containerWidth * scale;
 
   if (!pdfUrl) return null;
 
@@ -137,7 +225,18 @@ export default function PDFViewer() {
           </button>
         </div>
 
-        <div className="w-24" />
+        <div className="flex items-center gap-2">
+          {pageHighlights.length > 0 && (
+            <button
+              onClick={() => setActivePanel('studysheet')}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs text-amber-300 bg-amber-950/40 border border-amber-700/40 hover:border-amber-500/60 transition-colors"
+              title="View highlights & generate study sheet"
+            >
+              <Sparkles size={12} />
+              <span>{pageHighlights.length} on page</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* PDF scroll area */}
@@ -156,21 +255,62 @@ export default function PDFViewer() {
               loading={<div className="w-[700px] h-[900px] shimmer rounded-xl" />}
               className="flex flex-col items-center"
             >
-              <Page
-                pageNumber={currentPage}
-                width={containerWidth * scale}
-                onLoadSuccess={onPageLoadSuccess}
-                className="shadow-2xl shadow-black/60 rounded-lg overflow-hidden"
-                renderTextLayer={true}
-                renderAnnotationLayer={true}
-                loading={<div className="w-full h-[900px] shimmer rounded-xl" />}
-              />
+              <div ref={pageWrapperRef} className="relative">
+                <Page
+                  pageNumber={currentPage}
+                  width={renderedWidth}
+                  onLoadSuccess={onPageLoadSuccess}
+                  className="shadow-2xl shadow-black/60 rounded-lg overflow-hidden"
+                  renderTextLayer={true}
+                  renderAnnotationLayer={true}
+                  loading={<div className="w-full h-[900px] shimmer rounded-xl" />}
+                />
+
+                {/* Highlight overlays */}
+                <div className="absolute inset-0 pointer-events-none">
+                  {pageHighlights.map((h) => {
+                    const overlayScale = h.captureWidth > 0 ? renderedWidth / h.captureWidth : 1;
+                    const isHovered = hoveredHighlight === h.id;
+                    return (
+                      <div key={h.id} className="contents">
+                        {h.rects.map((r, i) => (
+                          <div
+                            key={`${h.id}-${i}`}
+                            className="absolute pointer-events-auto cursor-pointer transition-opacity"
+                            style={{
+                              left: r.x * overlayScale,
+                              top: r.y * overlayScale,
+                              width: r.width * overlayScale,
+                              height: r.height * overlayScale,
+                              background: COLOR_BG[h.color],
+                              mixBlendMode: 'multiply',
+                              opacity: isHovered ? 0.85 : 1,
+                              borderRadius: 2,
+                            }}
+                            onMouseEnter={() => setHoveredHighlight(h.id)}
+                            onMouseLeave={() => setHoveredHighlight(null)}
+                            onClick={(e) => {
+                              if (e.shiftKey) {
+                                removeHighlight(h.id);
+                              } else {
+                                setSelectedText(h.text);
+                                setActivePanel('chat');
+                              }
+                            }}
+                            title={`${h.text.slice(0, 80)}${h.text.length > 80 ? '…' : ''}\n\nClick: ask AI · Shift+click: remove`}
+                          />
+                        ))}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </Document>
           </motion.div>
         </AnimatePresence>
       </div>
 
-      {/* Selection tooltip */}
+      {/* Selection tooltip with color picker */}
       <AnimatePresence>
         {selectionTooltip && (
           <motion.div
@@ -181,12 +321,33 @@ export default function PDFViewer() {
             exit={{ opacity: 0, scale: 0.8, y: 5 }}
             transition={{ duration: 0.15 }}
           >
-            <button
-              onMouseDown={(e) => { e.preventDefault(); handleAskAbout(); }}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium shadow-lg shadow-indigo-900/50 transition-colors -translate-x-1/2 -translate-y-full"
-            >
-              <span>✨ Ask AI about this</span>
-            </button>
+            <div className="-translate-x-1/2 -translate-y-full flex items-center gap-1 px-2 py-1.5 rounded-full bg-[#1a1a2e] border border-white/10 shadow-xl shadow-black/50">
+              {HIGHLIGHT_COLORS.map((c) => (
+                <button
+                  key={c.id}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    handleHighlight(c.id);
+                  }}
+                  className={`w-5 h-5 rounded-full ring-1 ring-white/20 hover:ring-2 hover:${c.ring} hover:scale-110 transition-all`}
+                  style={{ background: c.bg }}
+                  title={`Highlight ${c.label}`}
+                  aria-label={`Highlight ${c.label}`}
+                />
+              ))}
+              <div className="w-px h-4 bg-white/10 mx-0.5" />
+              <button
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  handleAskAbout();
+                }}
+                className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition-colors"
+                title="Ask AI about this"
+              >
+                <Sparkles size={11} />
+                <span>Ask</span>
+              </button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
