@@ -34,14 +34,13 @@ export default function PDFViewer() {
     pdfUrl,
     currentPage,
     totalPages,
+    currentPdfId,
     setCurrentPage,
     setTotalPages,
+    setHistoryPageCount,
     setPageText,
     setSelectedText,
     setActivePanel,
-    highlights,
-    addHighlight,
-    removeHighlight,
   } = useStudyStore();
 
   const [scale, setScale] = useState(1.2);
@@ -60,11 +59,18 @@ export default function PDFViewer() {
     return () => obs.disconnect();
   }, []);
 
+  // Tick page timer every second while viewer is mounted; resets on page change via store.
+  useEffect(() => {
+    const id = window.setInterval(() => tickPageTimer(), 1000);
+    return () => window.clearInterval(id);
+  }, [tickPageTimer]);
+
   const onDocumentLoadSuccess = useCallback(
     ({ numPages }: { numPages: number }) => {
       setTotalPages(numPages);
+      if (currentPdfId) setHistoryPageCount(currentPdfId, numPages);
     },
-    [setTotalPages]
+    [setTotalPages, setHistoryPageCount, currentPdfId]
   );
 
   const onPageLoadSuccess = useCallback(
