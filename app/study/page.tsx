@@ -11,6 +11,8 @@ import RightSidebar from '@/components/RightSidebar';
 import ReadingCoach from '@/components/ReadingCoach';
 import DailyGoalRing from '@/components/DailyGoalRing';
 import GoalConfetti from '@/components/GoalConfetti';
+import PomodoroTimer from '@/components/PomodoroTimer';
+import QuizModal from '@/components/QuizModal';
 
 // PDF viewer must be client-only (no SSR) due to pdfjs worker
 const PDFViewer = dynamic(() => import('@/components/PDFViewer'), { ssr: false });
@@ -26,6 +28,9 @@ export default function StudyPage() {
     toggleBookmark,
     currentPdfId,
     recordPageRead,
+    pageText,
+    pomodoroRunning,
+    recordPomodoroPage,
   } = useStudyStore();
 
   useEffect(() => {
@@ -39,6 +44,19 @@ export default function StudyPage() {
       recordPageRead(currentPdfId, currentPage);
     }
   }, [currentPdfId, currentPage, totalPages, recordPageRead]);
+
+  useEffect(() => {
+    if (!pomodoroRunning) return;
+    if (!currentPdfId || currentPage <= 0) return;
+    const text = pageText[currentPage];
+    if (!text) return;
+    recordPomodoroPage({
+      pdfId: currentPdfId,
+      pdfFilename: pdfFile?.name || 'document',
+      page: currentPage,
+      text,
+    });
+  }, [pomodoroRunning, currentPdfId, currentPage, pageText, pdfFile, recordPomodoroPage]);
 
   if (!pdfUrl) return null;
 
@@ -81,6 +99,7 @@ export default function StudyPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          <PomodoroTimer />
           <DailyGoalRing />
           <button
             onClick={() => toggleBookmark(currentPage)}
@@ -131,6 +150,7 @@ export default function StudyPage() {
 
       <ReadingCoach />
       <GoalConfetti />
+      <QuizModal />
     </div>
   );
 }

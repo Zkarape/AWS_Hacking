@@ -73,6 +73,18 @@ export interface DocumentSearchResult {
   score: number;
 }
 
+export interface QuizQuestion {
+  question: string;
+  answer: string;
+}
+
+export interface PomodoroPage {
+  pdfId: string;
+  pdfFilename: string;
+  page: number;
+  text: string;
+}
+
 const SEARCH_STOPWORDS = new Set([
   'a', 'an', 'and', 'are', 'as', 'at', 'be', 'but', 'by', 'do', 'does', 'for',
   'from', 'has', 'have', 'how', 'i', 'in', 'is', 'it', 'its', 'me', 'my', 'no',
@@ -176,6 +188,14 @@ interface StudyStore {
   pagesReadDate: string;
   readPageKeysToday: string[];
   goalCelebratedDate: string | null;
+  pomodoroDuration: number;
+  pomodoroRemaining: number;
+  pomodoroRunning: boolean;
+  pomodoroSessionPages: PomodoroPage[];
+  quizQuestions: QuizQuestion[];
+  quizLoading: boolean;
+  quizError: string | null;
+  quizModalOpen: boolean;
 
   setPdfFile: (file: File) => void;
   loadPdfFromHistory: (id: string) => Promise<boolean>;
@@ -217,7 +237,20 @@ interface StudyStore {
   setDailyPageGoal: (n: number) => void;
   recordPageRead: (pdfId: string, page: number) => void;
   markGoalCelebrated: () => void;
+  startPomodoro: () => void;
+  pausePomodoro: () => void;
+  resetPomodoro: () => void;
+  tickPomodoro: () => boolean;
+  setPomodoroDuration: (seconds: number) => void;
+  recordPomodoroPage: (entry: PomodoroPage) => void;
+  setQuizModalOpen: (open: boolean) => void;
+  setQuizQuestions: (q: QuizQuestion[]) => void;
+  setQuizLoading: (v: boolean) => void;
+  setQuizError: (e: string | null) => void;
+  clearPomodoroSession: () => void;
 }
+
+const DEFAULT_POMODORO_DURATION = 25 * 60;
 
 const DEFAULT_DAILY_PAGE_GOAL = 20;
 
@@ -302,6 +335,14 @@ export const useStudyStore = create<StudyStore>()(
       bookmarks: [],
       searchQuery: '',
       notes: [],
+      pomodoroDuration: DEFAULT_POMODORO_DURATION,
+      pomodoroRemaining: DEFAULT_POMODORO_DURATION,
+      pomodoroRunning: false,
+      pomodoroSessionPages: [],
+      quizQuestions: [],
+      quizLoading: false,
+      quizError: null,
+      quizModalOpen: false,
 
       setPdfFile: (file) => {
         revokeUrl(get().pdfUrl);
@@ -473,6 +514,58 @@ export const useStudyStore = create<StudyStore>()(
       },
       removeNote: (id) => set((s) => ({ notes: s.notes.filter((n) => n.id !== id) })),
       clearNotes: () => set({ notes: [] }),
+
+      startPomodoro: () =>
+        set((s) => ({
+          pomodoroRunning: true,
+          pomodoroRemaining: s.pomodoroRemaining > 0 ? s.pomodoroRemaining : s.pomodoroDuration,
+        })),
+      pausePomodoro: () => set({ pomodoroRunning: false }),
+      resetPomodoro: () =>
+        set((s) => ({
+          pomodoroRunning: false,
+          pomodoroRemaining: s.pomodoroDuration,
+          pomodoroSessionPages: [],
+        })),
+      tickPomodoro: () => {
+        const s = get();
+        if (!s.pomodoroRunning) return false;
+        const next = s.pomodoroRemaining - 1;
+        if (next <= 0) {
+          set({ pomodoroRunning: false, pomodoroRemaining: 0 });
+          return true;
+        }
+        set({ pomodoroRemaining: next });
+        return false;
+      },
+      setPomodoroDuration: (seconds) => {
+        const clamped = Math.max(60, Math.min(60 * 60 * 2, Math.floor(seconds)));
+        set((s) => ({
+          pomodoroDuration: clamped,
+          pomodoroRemaining: s.pomodoroRunning ? s.pomodoroRemaining : clamped,
+        }));
+      },
+      recordPomodoroPage: (entry) =>
+        set((s) => {
+          if (!s.pomodoroRunning) return s;
+          if (!entry.pdfId || entry.page <= 0) return s;
+          const exists = s.pomodoroSessionPages.some(
+            (p) => p.pdfId === entry.pdfId && p.page === entry.page
+          );
+          if (exists) return s;
+          const trimmed: PomodoroPage = {
+            pdfId: entry.pdfId,
+            pdfFilename: entry.pdfFilename,
+            page: entry.page,
+            text: (entry.text || '').slice(0, 4000),
+          };
+          return { pomodoroSessionPages: [...s.pomodoroSessionPages, trimmed] };
+        }),
+      setQuizModalOpen: (open) => set({ quizModalOpen: open }),
+      setQuizQuestions: (q) => set({ quizQuestions: q }),
+      setQuizLoading: (v) => set({ quizLoading: v }),
+      setQuizError: (e) => set({ quizError: e }),
+      clearPomodoroSession: () => set({ pomodoroSessionPages: [] }),
     }),
     {
       name: 'readmind-history',
@@ -484,6 +577,7 @@ export const useStudyStore = create<StudyStore>()(
         pagesReadDate: state.pagesReadDate,
         readPageKeysToday: state.readPageKeysToday,
         goalCelebratedDate: state.goalCelebratedDate,
+        pomodoroDuration: state.pomodoroDuration,
       }),
     }
   )
