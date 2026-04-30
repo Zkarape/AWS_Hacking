@@ -1,0 +1,145 @@
+@import "tailwindcss";
+
+:root {
+  --sidebar-width: 280px;
+  --right-sidebar-width: 360px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background: #0a0a0f;
+  color: #e2e8f0;
+  font-family: 'Inter', system-ui, sans-serif;
+  overflow: hidden;
+}
+
+/* PDF text layer — enable selection */
+.react-pdf__Page__textContent {
+  color: transparent !important;
+  position: absolute !important;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.react-pdf__Page__textContent span {
+  cursor: text;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.react-pdf__Page__textContent span::selection {
+  background: rgba(99, 102, 241, 0.4);
+  color: transparent;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(99, 102, 241, 0.4);
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(99, 102, 241, 0.7);
+}
+
+/* Flashcard 3D flip */
+.flashcard-scene {
+  perspective: 1000px;
+}
+.flashcard-card {
+  transform-style: preserve-3d;
+  transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.flashcard-card.flipped {
+  transform: rotateY(180deg);
+}
+.flashcard-face {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+.flashcard-back {
+  transform: rotateY(180deg);
+}
+
+/* Gradient text */
+.gradient-text {
+  background: linear-gradient(135deg, #818cf8 0%, #c084fc 50%, #f472b6 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Glow effects */
+.glow-purple {
+  box-shadow: 0 0 20px rgba(139, 92, 246, 0.3);
+}
+.glow-indigo {
+  box-shadow: 0 0 20px rgba(99, 102, 241, 0.3);
+}
+
+/* Typing cursor */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.typing-cursor::after {
+  content: '▋';
+  animation: blink 1s infinite;
+  color: #818cf8;
+}
+
+/* Shimmer loading */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.shimmer {
+  background: linear-gradient(90deg, #1e1e2e 25%, #2a2a3e 50%, #1e1e2e 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* Pulse glow */
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 10px rgba(139, 92, 246, 0.2); }
+  50% { box-shadow: 0 0 30px rgba(139, 92, 246, 0.6), 0 0 60px rgba(139, 92, 246, 0.2); }
+}
+.pulse-glow {
+  animation: pulseGlow 2s ease-in-out infinite;
+}
+
+/* Floating animation */
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+.float {
+  animation: float 3s ease-in-out infinite;
+}
+
+/* Panel transitions */
+.panel-enter {
+  animation: slideInRight 0.3s ease-out;
+}
+@keyframes slideInRight {
+  from { transform: translateX(20px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+/* Selection tooltip */
+.selection-tooltip {
+  position: fixed;
+  z-index: 1000;
+  pointer-events: all;
+}
