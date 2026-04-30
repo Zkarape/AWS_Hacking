@@ -49,7 +49,82 @@ export interface PdfHistoryEntry {
   pageCount?: number;
 }
 
-const PAGE_HISTORY_LIMIT = 3;
+export interface DocumentIndexEntry {
+  page: number;
+  text: string;
+  normalized: string;
+}
+
+export interface DocumentSearchResult {
+  page: number;
+  snippet: string;
+  score: number;
+}
+
+const SEARCH_STOPWORDS = new Set([
+  'a', 'an', 'and', 'are', 'as', 'at', 'be', 'but', 'by', 'do', 'does', 'for',
+  'from', 'has', 'have', 'how', 'i', 'in', 'is', 'it', 'its', 'me', 'my', 'no',
+  'not', 'of', 'on', 'or', 'so', 'than', 'that', 'the', 'their', 'them', 'then',
+  'there', 'these', 'they', 'this', 'those', 'to', 'was', 'we', 'were', 'what',
+  'when', 'where', 'which', 'who', 'why', 'will', 'with', 'you', 'your',
+]);
+
+function tokenize(s: string): string[] {
+  return (s.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter((t) => t.length > 1);
+}
+
+function makeSnippet(text: string, tokens: string[], windowSize = 220): string {
+  if (!text) return '';
+  const lower = text.toLowerCase();
+  let bestIdx = -1;
+  for (const tok of tokens) {
+    const idx = lower.indexOf(tok);
+    if (idx !== -1 && (bestIdx === -1 || idx < bestIdx)) bestIdx = idx;
+  }
+  if (bestIdx === -1) return text.slice(0, windowSize);
+  const start = Math.max(0, bestIdx - 60);
+  const end = Math.min(text.length, start + windowSize);
+  let snippet = text.slice(start, end).replace(/\s+/g, ' ').trim();
+  if (start > 0) snippet = '…' + snippet;
+  if (end < text.length) snippet = snippet + '…';
+  return snippet;
+}
+
+function runDocumentSearch(
+  index: DocumentIndexEntry[],
+  query: string,
+  maxResults: number
+): DocumentSearchResult[] {
+  const rawTokens = tokenize(query);
+  const queryTokens = rawTokens.filter((t) => !SEARCH_STOPWORDS.has(t));
+  const effectiveTokens = queryTokens.length > 0 ? queryTokens : rawTokens;
+  if (effectiveTokens.length === 0) return [];
+
+  const results: DocumentSearchResult[] = [];
+  for (const entry of index) {
+    if (!entry.normalized) continue;
+    let score = 0;
+    for (const token of effectiveTokens) {
+      let from = 0;
+      while (true) {
+        const idx = entry.normalized.indexOf(token, from);
+        if (idx === -1) break;
+        score += 1;
+        from = idx + token.length;
+      }
+    }
+    if (score > 0) {
+      results.push({
+        page: entry.page,
+        snippet: makeSnippet(entry.text, effectiveTokens),
+        score,
+      });
+    }
+  }
+
+  results.sort((a, b) => b.score - a.score || a.page - b.page);
+  return results.slice(0, maxResults);
+}
 
 interface StudyStore {
   pdfFile: File | null;
@@ -59,6 +134,7 @@ interface StudyStore {
   currentPage: number;
   totalPages: number;
   pageText: Record<number, string>;
+  documentIndex: DocumentIndexEntry[];
   selectedText: string;
   chatMessages: Message[];
   summary: string;
@@ -75,14 +151,16 @@ interface StudyStore {
   activePanel: ActivePanel;
   bookmarks: number[];
   searchQuery: string;
+  notes: Note[];
   secondsOnPage: number;
   lastPageChangeTime: number;
   coachDismissedPages: number[];
   pendingChatPrompt: string;
-  pageHistory: number[];
-  lostBridge: string;
-  lostBridgeLoading: boolean;
-  isLostBridgeVisible: boolean;
+  dailyPageGoal: number;
+  pagesReadToday: number;
+  pagesReadDate: string;
+  readPageKeysToday: string[];
+  goalCelebratedDate: string | null;
 
   setPdfFile: (file: File) => void;
   loadPdfFromHistory: (id: string) => Promise<boolean>;
@@ -91,6 +169,7 @@ interface StudyStore {
   setCurrentPage: (page: number) => void;
   setTotalPages: (n: number) => void;
   setPageText: (page: number, text: string) => void;
+  searchDocument: (query: string, maxResults?: number) => DocumentSearchResult[];
   setSelectedText: (text: string) => void;
   addChatMessage: (msg: Message) => void;
   clearChat: () => void;
@@ -111,13 +190,25 @@ interface StudyStore {
   setActivePanel: (p: ActivePanel) => void;
   toggleBookmark: (page: number) => void;
   setSearchQuery: (q: string) => void;
+  addNote: (text: string, page: number) => void;
+  removeNote: (id: string) => void;
+  clearNotes: () => void;
   tickPageTimer: () => void;
   dismissCoachForPage: (page: number) => void;
   setPendingChatPrompt: (prompt: string) => void;
-  openLostBridge: () => void;
-  closeLostBridge: () => void;
-  setLostBridge: (s: string) => void;
-  setLostBridgeLoading: (v: boolean) => void;
+  setDailyPageGoal: (n: number) => void;
+  recordPageRead: (pdfId: string, page: number) => void;
+  markGoalCelebrated: () => void;
+}
+
+const DEFAULT_DAILY_PAGE_GOAL = 20;
+
+function todayKey(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 function genId() {
@@ -150,6 +241,7 @@ function pushPageHistory(history: number[], page: number): number[] {
 const docResetSlice = {
   currentPage: 1,
   pageText: {} as Record<number, string>,
+  documentIndex: [] as DocumentIndexEntry[],
   selectedText: '',
   chatMessages: [] as Message[],
   summary: '',
@@ -161,14 +253,7 @@ const docResetSlice = {
   studySheet: '',
   studySheetLoading: false,
   bookmarks: [] as number[],
-  secondsOnPage: 0,
-  lastPageChangeTime: Date.now(),
-  coachDismissedPages: [] as number[],
-  pendingChatPrompt: '',
-  pageHistory: [1] as number[],
-  lostBridge: '',
-  lostBridgeLoading: false,
-  isLostBridgeVisible: false,
+  notes: [] as Note[],
 };
 
 export const useStudyStore = create<StudyStore>()(
@@ -181,6 +266,7 @@ export const useStudyStore = create<StudyStore>()(
       currentPage: 1,
       totalPages: 0,
       pageText: {},
+      documentIndex: [],
       selectedText: '',
       chatMessages: [],
       summary: '',
@@ -197,14 +283,7 @@ export const useStudyStore = create<StudyStore>()(
       activePanel: 'summary',
       bookmarks: [],
       searchQuery: '',
-      secondsOnPage: 0,
-      lastPageChangeTime: Date.now(),
-      coachDismissedPages: [],
-      pendingChatPrompt: '',
-      pageHistory: [1],
-      lostBridge: '',
-      lostBridgeLoading: false,
-      isLostBridgeVisible: false,
+      notes: [],
 
       setPdfFile: (file) => {
         revokeUrl(get().pdfUrl);
@@ -307,7 +386,30 @@ export const useStudyStore = create<StudyStore>()(
           };
         }),
       setTotalPages: (n) => set({ totalPages: n }),
-      setPageText: (page, text) => set((s) => ({ pageText: { ...s.pageText, [page]: text } })),
+      setPageText: (page, text) =>
+        set((s) => {
+          const entry: DocumentIndexEntry = {
+            page,
+            text,
+            normalized: text.toLowerCase(),
+          };
+          const existingIdx = s.documentIndex.findIndex((e) => e.page === page);
+          let nextIndex: DocumentIndexEntry[];
+          if (existingIdx === -1) {
+            nextIndex = [...s.documentIndex, entry].sort((a, b) => a.page - b.page);
+          } else if (s.documentIndex[existingIdx].text === text) {
+            nextIndex = s.documentIndex;
+          } else {
+            nextIndex = s.documentIndex.slice();
+            nextIndex[existingIdx] = entry;
+          }
+          return {
+            pageText: { ...s.pageText, [page]: text },
+            documentIndex: nextIndex,
+          };
+        }),
+      searchDocument: (query, maxResults = 5) =>
+        runDocumentSearch(get().documentIndex, query, maxResults),
       setSelectedText: (text) => set({ selectedText: text }),
       addChatMessage: (msg) => set((s) => ({ chatMessages: [...s.chatMessages, msg] })),
       clearChat: () => set({ chatMessages: [], selectedText: '' }),
@@ -340,28 +442,31 @@ export const useStudyStore = create<StudyStore>()(
             : [...s.bookmarks, page],
         })),
       setSearchQuery: (q) => set({ searchQuery: q }),
-      tickPageTimer: () =>
-        set((s) => ({
-          secondsOnPage: Math.floor((Date.now() - s.lastPageChangeTime) / 1000),
-        })),
-      dismissCoachForPage: (page) =>
-        set((s) =>
-          s.coachDismissedPages.includes(page)
-            ? s
-            : { coachDismissedPages: [...s.coachDismissedPages, page] }
-        ),
-      setPendingChatPrompt: (prompt) => set({ pendingChatPrompt: prompt }),
-      openLostBridge: () =>
-        set({ isLostBridgeVisible: true, lostBridge: '', lostBridgeLoading: true }),
-      closeLostBridge: () =>
-        set({ isLostBridgeVisible: false, lostBridgeLoading: false }),
-      setLostBridge: (s) => set({ lostBridge: s }),
-      setLostBridgeLoading: (v) => set({ lostBridgeLoading: v }),
+      addNote: (text, page) => {
+        const trimmed = text.trim();
+        if (!trimmed) return;
+        const note: Note = {
+          id: genId(),
+          text: trimmed,
+          page,
+          createdAt: Date.now(),
+        };
+        set((s) => ({ notes: [note, ...s.notes] }));
+      },
+      removeNote: (id) => set((s) => ({ notes: s.notes.filter((n) => n.id !== id) })),
+      clearNotes: () => set({ notes: [] }),
     }),
     {
       name: 'readmind-history',
       storage: createJSONStorage(() => localStorage),
-      partialize: (state) => ({ pdfHistory: state.pdfHistory }),
+      partialize: (state) => ({
+        pdfHistory: state.pdfHistory,
+        dailyPageGoal: state.dailyPageGoal,
+        pagesReadToday: state.pagesReadToday,
+        pagesReadDate: state.pagesReadDate,
+        readPageKeysToday: state.readPageKeysToday,
+        goalCelebratedDate: state.goalCelebratedDate,
+      }),
     }
   )
 );
