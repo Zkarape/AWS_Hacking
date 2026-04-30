@@ -7,22 +7,29 @@ const client = new Anthropic({
 });
 
 export async function POST(req: NextRequest) {
-  const { text, pageNumber, totalPages } = await req.json();
+  const { text, pageNumber, totalPages, simpleMode } = await req.json();
 
   if (!text?.trim()) {
     return new Response('No text content on this page.', { headers: { 'Content-Type': 'text/plain' } });
   }
 
+  const system = simpleMode
+    ? 'You are a friendly tutor explaining things to a curious 10-year-old. Rewrite the page content in 3-5 short bullet points using simple, everyday words. Avoid jargon — when a technical term is unavoidable, define it in plain language right after. Use concrete analogies a kid would understand. Each bullet starts with a bold plain-language phrase. Keep sentences short.'
+    : 'You are a concise study assistant. Summarize the page content in 3-5 bullet points. Each bullet starts with a bold key phrase. Be direct and information-dense. No filler.';
+
+  const userPrompt = simpleMode
+    ? `Explain page ${pageNumber} of ${totalPages} like I'm 10 years old:\n\n${text.slice(0, 3000)}`
+    : `Summarize page ${pageNumber} of ${totalPages}:\n\n${text.slice(0, 3000)}`;
+
   try {
     const stream = await client.messages.stream({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 300,
-      system:
-        'You are a concise study assistant. Summarize the page content in 3-5 bullet points. Each bullet starts with a bold key phrase. Be direct and information-dense. No filler.',
+      system,
       messages: [
         {
           role: 'user',
-          content: `Summarize page ${pageNumber} of ${totalPages}:\n\n${text.slice(0, 3000)}`,
+          content: userPrompt,
         },
       ],
     });

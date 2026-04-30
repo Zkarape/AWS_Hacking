@@ -39,6 +39,8 @@ interface StudyStore {
   selectedText: string;
   chatMessages: Message[];
   summary: string;
+  simpleSummary: string;
+  isSimpleMode: boolean;
   summaryLoading: boolean;
   concepts: Concept[];
   conceptsLoading: boolean;
@@ -63,6 +65,9 @@ interface StudyStore {
   addChatMessage: (msg: Message) => void;
   clearChat: () => void;
   setSummary: (s: string) => void;
+  setSimpleSummary: (s: string) => void;
+  setIsSimpleMode: (v: boolean) => void;
+  toggleSimpleMode: () => void;
   setSummaryLoading: (v: boolean) => void;
   setConcepts: (c: Concept[]) => void;
   setConceptsLoading: (v: boolean) => void;
