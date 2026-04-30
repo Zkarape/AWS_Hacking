@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { RefreshCw, FileText, Sparkles, Volume2, Pause, Square } from 'lucide-react';
 import { useStudyStore } from '@/lib/store';
@@ -75,6 +75,16 @@ export default function PageSummary() {
     const text = displayedSummary || (isSimpleMode ? simpleSummary : summary);
     startSpeech(text);
   };
+
+  const [terms, setTerms] = useState<JargonTerm[]>([]);
+  const jargonCacheRef = useRef<Map<string, JargonTerm[]>>(new Map());
+  const jargonAbortRef = useRef<AbortController | null>(null);
+  const [activeTerm, setActiveTerm] = useState<{
+    term: JargonTerm;
+    rect: { top: number; bottom: number; left: number; right: number };
+  } | null>(null);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const fetchSummary = async (page: number, simpleMode: boolean) => {
     const text = pageText[page];
@@ -244,7 +254,7 @@ export default function PageSummary() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4">
         <AnimatePresence mode="wait">
           {!pageText[currentPage] ? (
             <motion.div key="no-text" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center gap-3 py-12 text-center">
@@ -273,12 +283,48 @@ export default function PageSummary() {
                 </div>
               )}
               <div className={`text-sm text-slate-300 leading-relaxed whitespace-pre-wrap ${summaryLoading ? 'typing-cursor' : ''}`}>
-                {displayedSummary || (isSimpleMode ? simpleSummary : summary)}
+                {summaryNodes}
               </div>
             </motion.div>
           )}
         </AnimatePresence>
       </div>
+
+      <AnimatePresence>
+        {activeTerm && popoverStyle && (
+          <motion.div
+            ref={popoverRef}
+            role="dialog"
+            aria-label={`Definition of ${activeTerm.term.term}`}
+            initial={{ opacity: 0, y: 4, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 4, scale: 0.98 }}
+            transition={{ duration: 0.12 }}
+            style={popoverStyle}
+            className="rounded-lg border border-indigo-400/30 bg-[#10101e]/95 backdrop-blur-md shadow-2xl shadow-black/40 px-3 py-2.5"
+          >
+            <div className="flex items-start gap-2">
+              <BookOpen size={12} className="mt-0.5 text-indigo-400 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-indigo-300">
+                  {activeTerm.term.term}
+                </div>
+                <p className="mt-1 text-xs text-slate-300 leading-relaxed">
+                  {activeTerm.term.definition}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveTerm(null)}
+                className="shrink-0 -m-1 p-1 rounded text-slate-500 hover:text-slate-300 hover:bg-white/5 transition-colors"
+                aria-label="Close definition"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
