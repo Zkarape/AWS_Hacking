@@ -35,6 +35,10 @@ interface StudyStore {
   activePanel: 'summary' | 'chat' | 'concepts' | 'flashcards';
   bookmarks: number[];
   searchQuery: string;
+  secondsOnPage: number;
+  lastPageChangeTime: number;
+  coachDismissedPages: number[];
+  pendingChatPrompt: string;
 
   setPdfFile: (file: File) => void;
   setCurrentPage: (page: number) => void;
@@ -52,6 +56,9 @@ interface StudyStore {
   setActivePanel: (p: StudyStore['activePanel']) => void;
   toggleBookmark: (page: number) => void;
   setSearchQuery: (q: string) => void;
+  tickPageTimer: () => void;
+  dismissCoachForPage: (page: number) => void;
+  setPendingChatPrompt: (prompt: string) => void;
 }
 
 export const useStudyStore = create<StudyStore>((set, get) => ({
@@ -71,12 +78,31 @@ export const useStudyStore = create<StudyStore>((set, get) => ({
   activePanel: 'summary',
   bookmarks: [],
   searchQuery: '',
+  secondsOnPage: 0,
+  lastPageChangeTime: Date.now(),
+  coachDismissedPages: [],
+  pendingChatPrompt: '',
 
   setPdfFile: (file) => {
     const url = URL.createObjectURL(file);
-    set({ pdfFile: file, pdfUrl: url, currentPage: 1, chatMessages: [], summary: '', concepts: [], flashcards: [] });
+    set({
+      pdfFile: file,
+      pdfUrl: url,
+      currentPage: 1,
+      chatMessages: [],
+      summary: '',
+      concepts: [],
+      flashcards: [],
+      secondsOnPage: 0,
+      lastPageChangeTime: Date.now(),
+      coachDismissedPages: [],
+      pendingChatPrompt: '',
+    });
   },
-  setCurrentPage: (page) => set({ currentPage: page }),
+  setCurrentPage: (page) => {
+    if (get().currentPage === page) return;
+    set({ currentPage: page, secondsOnPage: 0, lastPageChangeTime: Date.now() });
+  },
   setTotalPages: (n) => set({ totalPages: n }),
   setPageText: (page, text) => set((s) => ({ pageText: { ...s.pageText, [page]: text } })),
   setSelectedText: (text) => set({ selectedText: text }),
@@ -96,4 +122,12 @@ export const useStudyStore = create<StudyStore>((set, get) => ({
         : [...s.bookmarks, page],
     })),
   setSearchQuery: (q) => set({ searchQuery: q }),
+  tickPageTimer: () => set((s) => ({ secondsOnPage: s.secondsOnPage + 1 })),
+  dismissCoachForPage: (page) =>
+    set((s) =>
+      s.coachDismissedPages.includes(page)
+        ? s
+        : { coachDismissedPages: [...s.coachDismissedPages, page] }
+    ),
+  setPendingChatPrompt: (prompt) => set({ pendingChatPrompt: prompt }),
 }));
